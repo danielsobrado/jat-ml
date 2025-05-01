@@ -1,0 +1,448 @@
+{
+	"info": {
+		"_postman_id": "c87e3d91-1f19-4b8c-9aaa-3e2b71a1d42c",
+		"name": "Classification API",
+		"description": "A collection to test the Classification API endpoints for managing multiple classification systems with ChromaDB.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Get Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = JSON.parse(responseBody);",
+									"postman.setEnvironmentVariable(\"access_token\", jsonData.access_token);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "username",
+									"value": "admin",
+									"type": "text"
+								},
+								{
+									"key": "password",
+									"value": "admin",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/token",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"token"
+							]
+						},
+						"description": "Authenticate and get an access token"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/users/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"me"
+							]
+						},
+						"description": "Get information about the currently authenticated user"
+					},
+					"response": []
+				},
+				{
+					"name": "Create User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"test_user\",\n    \"password\": \"test_password\",\n    \"disabled\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/users",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users"
+							]
+						},
+						"description": "Create a new user (admin only)"
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication-related endpoints"
+		},
+		{
+			"name": "Status",
+			"item": [
+				{
+					"name": "Get API Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								""
+							]
+						},
+						"description": "Get API status, connection info, and auth status"
+					},
+					"response": []
+				}
+			],
+			"description": "API status information"
+		},
+		{
+			"name": "Collections",
+			"item": [
+				{
+					"name": "List Collections",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/collections",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"collections"
+							]
+						},
+						"description": "Get a list of all available collections with their item counts"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Collection",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/collection/unspsc_categories",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"collection",
+								"unspsc_categories"
+							]
+						},
+						"description": "Create a new collection"
+					},
+					"response": []
+				},
+				{
+					"name": "Create HS Collection",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/collection/hs_codes",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"collection",
+								"hs_codes"
+							]
+						},
+						"description": "Create a collection for HS codes"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Collection",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/collection/test_collection",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"collection",
+								"test_collection"
+							]
+						},
+						"description": "Delete a collection"
+					},
+					"response": []
+				}
+			],
+			"description": "Collection management endpoints"
+		},
+		{
+			"name": "Items",
+			"item": [
+				{
+					"name": "Add UNSPSC Items",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"items\": [\n        {\n            \"code\": \"43211503\",\n            \"name\": \"Notebook computer\",\n            \"description\": \"A portable personal computer that typically weighs under 5 pounds.\",\n            \"hierarchy\": \"Information Technology > Computer Equipment > Computers > Notebook computer\",\n            \"metadata\": {\n                \"category\": \"electronics\",\n                \"type\": \"good\"\n            }\n        },\n        {\n            \"code\": \"43211507\",\n            \"name\": \"Desktop computer\",\n            \"description\": \"A personal computer that is designed to be used in a single location.\",\n            \"hierarchy\": \"Information Technology > Computer Equipment > Computers > Desktop computer\"\n        },\n        {\n            \"code\": \"43211509\",\n            \"name\": \"Tablet computer\",\n            \"description\": \"A portable touchscreen computer with no physical keyboard.\",\n            \"hierarchy\": \"Information Technology > Computer Equipment > Computers > Tablet computer\",\n            \"metadata\": {\n                \"category\": \"electronics\",\n                \"type\": \"good\"\n            }\n        },\n        {\n            \"code\": \"43201404\",\n            \"name\": \"Computer monitor\",\n            \"description\": \"A visual display unit for a computer.\",\n            \"hierarchy\": \"Information Technology > Computer Equipment > Computer displays > Computer monitor\",\n            \"metadata\": {\n                \"category\": \"electronics\",\n                \"type\": \"good\"\n            }\n        }\n    ],\n    \"collection_name\": \"unspsc_categories\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/add_batch",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"add_batch"
+							]
+						},
+						"description": "Add UNSPSC items to the collection"
+					},
+					"response": []
+				},
+				{
+					"name": "Add HS Code Items",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"items\": [\n        {\n            \"code\": \"8471.30.00\",\n            \"name\": \"Portable automatic data processing machines\",\n            \"description\": \"Portable digital automatic data processing machines, weighing not more than 10 kg, consisting of at least a central processing unit, a keyboard and a display.\",\n            \"hierarchy\": \"Section XVI > Chapter 84 > Heading 8471 > Subheading 8471.30\",\n            \"metadata\": {\n                \"category\": \"electronics\",\n                \"system\": \"hs_code\"\n            }\n        },\n        {\n            \"code\": \"8471.41.00\",\n            \"name\": \"Other automatic data processing machines\",\n            \"description\": \"Other automatic data processing machines comprising in the same housing at least a central processing unit and an input and output unit, whether or not combined.\",\n            \"hierarchy\": \"Section XVI > Chapter 84 > Heading 8471 > Subheading 8471.41\",\n            \"metadata\": {\n                \"category\": \"electronics\",\n                \"system\": \"hs_code\"\n            }\n        },\n        {\n            \"code\": \"8471.60.00\",\n            \"name\": \"Input or output units\",\n            \"description\": \"Input or output units, whether or not containing storage units in the same housing.\",\n            \"hierarchy\": \"Section XVI > Chapter 84 > Heading 8471 > Subheading 8471.60\",\n            \"metadata\": {\n                \"category\": \"electronics\",\n                \"system\": \"hs_code\"\n            }\n        }\n    ],\n    \"collection_name\": \"hs_codes\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/add_batch",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"add_batch"
+							]
+						},
+						"description": "Add HS code items to the collection"
+					},
+					"response": []
+				}
+			],
+			"description": "Item management endpoints"
+		},
+		{
+			"name": "Search",
+			"item": [
+				{
+					"name": "Search UNSPSC",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/search?query=laptop computer&collection_name=unspsc_categories&limit=5",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"search"
+							],
+							"query": [
+								{
+									"key": "query",
+									"value": "laptop computer"
+								},
+								{
+									"key": "collection_name",
+									"value": "unspsc_categories"
+								},
+								{
+									"key": "limit",
+									"value": "5"
+								}
+							]
+						},
+						"description": "Search for items in the UNSPSC collection"
+					},
+					"response": []
+				},
+				{
+					"name": "Search HS Codes",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/search?query=automatic data processing&collection_name=hs_codes&limit=5",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"search"
+							],
+							"query": [
+								{
+									"key": "query",
+									"value": "automatic data processing"
+								},
+								{
+									"key": "collection_name",
+									"value": "hs_codes"
+								},
+								{
+									"key": "limit",
+									"value": "5"
+								}
+							]
+						},
+						"description": "Search for items in the HS codes collection"
+					},
+					"response": []
+				},
+				{
+					"name": "Search All Collections",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/search_all?query=computer&limit_per_collection=3&min_score=0.3",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"search_all"
+							],
+							"query": [
+								{
+									"key": "query",
+									"value": "computer"
+								},
+								{
+									"key": "limit_per_collection",
+									"value": "3"
+								},
+								{
+									"key": "min_score",
+									"value": "0.3"
+								}
+							]
+						},
+						"description": "Search across all collections"
+					},
+					"response": []
+				}
+			],
+			"description": "Search endpoints"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8090",
+			"type": "string"
+		}
+	]
+}

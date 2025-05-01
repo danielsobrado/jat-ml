@@ -1,0 +1,40 @@
+# Classification API Configuration
+
+# Server settings
+server:
+  host: "0.0.0.0"
+  port: 8090 
+  log_level: "INFO"
+  environment: "production"  # production, development, testing
+
+# ChromaDB settings
+chromadb:
+  host: "localhost"  # Docker service name or hostname
+  port: 8000
+  default_collection: "unspsc_categories" 
+  manual_info_collection: "rag_manual_info"
+  # <<< ADDED Collections >>>
+  unspsc_collection: "unspsc_categories"   # Explicit name for UNSPSC
+  common_collection: "common_categories"   # Explicit name for Common Cats
+
+# PostgreSQL settings (for fetching data to populate Chroma)
+postgres:
+  # --- IMPORTANT ---
+  # Use 'host.docker.internal' if Go backend runs on HOST OS (common for Docker Desktop)
+  # Use the Go backend's SERVICE NAME if it runs in a separate Docker container
+  # Assuming Go runs on HOST for now:
+  host: "host.docker.internal"
+  # Use the port the Go backend's embedded Postgres listens on
+  port: 5433
+  user: "unspsc"
+  password: "unspsc"
+  dbname: "unspsc" # The DB created by the Go backend
+
+# Authentication settings
+auth:
+  enabled: false  # Set to false to disable authentication
+  secret_key: "CHANGE_THIS_TO_A_SECURE_SECRET_IN_PRODUCTION"
+  token_expire_minutes: 30
+  default_admin:
+    username: "admin"
+    password: "admin"

@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  milvus:
+    image: milvusdb/milvus:v2.3.3
+    container_name: milvus
+    command: ["milvus", "run", "standalone"]
+    volumes:
+      - milvus-data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+    networks:
+      - app-network
+    restart: unless-stopped
+    environment:
+      - STANDALONE_ENABLED=true
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  classification-api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: classification-api
+    depends_on:
+      - milvus
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../config.yaml:/app/config.yaml
+    networks:
+      - app-network
+    restart: unless-stopped
+    environment:
+      - VECTOR_DB_TYPE=milvus
+      - VECTOR_DB_HOST=milvus
+      - VECTOR_DB_PORT=19530
+      - SERVER_PORT=8080
+      - ENABLE_AUTH=${ENABLE_AUTH:-false}
+      - SECRET_KEY=${SECRET_KEY:-ChangeThisToASecureKeyInProduction}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  rag-service:
+    build:
+      context: ../..  # Build from the root directory
+      dockerfile: ./rag/deployment/Dockerfile
+    restart: always
+    ports:
+      - "8090:8090"  # Expose RAG service port
+    depends_on:
+      - etcd
+      - minio
+      - standalone
+    environment:
+      - MILVUS_HOST=standalone
+      - MILVUS_PORT=19530
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8090
+      - ENABLE_AUTH=false  # Disable auth for easier testing
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  milvus-data:
+    driver: local

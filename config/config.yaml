@@ -1,0 +1,80 @@
+# config.yaml
+server:
+  host: ""
+  port: 8081
+  requestTimeout: 6000s
+  logLevel: "debug"
+
+service:
+  batchSize: 100
+  dataPath: "../data/unspsc"
+  commonDataPath: "../data/common"
+  excelPattern: "[Uu][Nn][Ss][Pp][Ss][Cc]*.xlsx"
+  llmEndpoint: "https://openrouter.ai/api/v1/chat/completions"  
+  llmApiKey: "${OPENROUTER_API_KEY}"
+  llmModel: "meta-llama/llama-4-maverick"
+  llmMaxTokens: 4096
+  llmTemperature: 0.2
+  useTypePrompt: false # Use type prompt for good or service
+  maxSkipLogs: 5 # Maximum number of skip load excel rows logs to display
+  batchRetryLimit: 3 # Number of times to retry batch processing in case of partial matching
+
+  # UNSPSC Loader Config
+  unspscExcelLoader:
+    filePath: "unspsc-english-v260801.xlsx"
+    sheetName: ""
+    levelHeaders:
+      - dbLevelCode: "segment"
+        codeHeader: "Segment"
+        titleHeader: "Segment Title"
+      - dbLevelCode: "family"
+        codeHeader: "Family"
+        titleHeader: "Family Title"
+      - dbLevelCode: "class"
+        codeHeader: "Class"
+        titleHeader: "Class Title"
+      - dbLevelCode: "commodity"
+        codeHeader: "Commodity"
+        titleHeader: "Commodity Title"
+
+  # Common Categories Loader Config
+  commonExcelLoader:
+    filePath: "Common_Categories_07MAR25.xlsx"
+    sheetName: "Common Categories -Sub Category"
+    level1HeaderName: "Common Category with BPA Issued"
+
+database:
+  host: "localhost"
+  port: 5433
+  user: "unspsc"
+  password: "unspsc"
+  name: "unspsc"
+  dataPath: "../data/db"
+  ragServiceUrl: "http://localhost:8090"
+  ragEnabled: true
+  # ADDED RAG Collection Names
+  ragManualInfoCollection: "rag_manual_info"      # Name for manual RAG entries
+  ragUnspscCollection: "unspsc_categories"        # Name for UNSPSC system data
+  ragCommonCollection: "common_categories"        # Name for Common Categories system data
+
+validation:
+  maxHistoryLimit: 100
+  tokenLimit: 4096
+  defaultTimeout: 15s
+
+alert:
+  emailSettings:
+    smtpHost: ""
+    smtpPort: 587
+    smtpUser: ""
+    smtpPassword: ""
+    fromEmail: ""
+  webhookSettings:
+    url: ""
+    
+auth: # New section for authentication
+  enabled: false               # Set to true to enable authentication
+  jwtSecret: "REPLACE_THIS_WITH_A_VERY_STRONG_RANDOM_SECRET_KEY_32_CHARS_OR_MORE" # Use env var in prod!
+  jwtExpirationHours: 72      # Token validity duration
+  initialAdminUser: "admin"
+  initialAdminPassword: "REPLACE_THIS_WITH_A_STRONG_PASSWORD" # Will be hashed

@@ -1,0 +1,33 @@
+# Classification API Configuration
+
+# Server settings
+server:
+  host: "0.0.0.0"
+  port: 8080
+  log_level: "INFO"
+  environment: "production"  # production, development, testing
+
+# Vector database settings
+vector_db:
+  type: "milvus"  # milvus, chromadb
+  host: "localhost"
+  port: 19530
+  default_collection: "unspsc_categories"
+  
+  # Milvus specific settings
+  milvus:
+    user: ""
+    password: ""
+    db_name: "classification"
+    timeout: 10  # seconds
+    consistency_level: "Eventually"  # Strong, Session, Bounded, Eventually
+    embedding_dim: 768  # Depends on your embedding model
+
+# Authentication settings
+auth:
+  enabled: false  # Set to false to disable authentication
+  secret_key: "CHANGE_THIS_TO_A_SECURE_SECRET_IN_PRODUCTION"
+  token_expire_minutes: 30
+  default_admin:
+    username: "admin"
+    password: "admin"
