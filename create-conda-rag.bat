@@ -21,15 +21,28 @@ if %errorlevel% equ 0 (
 
 REM Create the conda environment
 echo Creating new conda environment 'classification-rag'...
-call conda create -y --name classification-rag python=3.10
+call conda create -y --name classification-rag python=3.11
 
 REM Activate the environment and install requirements
 echo Activating environment and installing dependencies...
 call conda activate classification-rag
 
-REM Install pip packages from requirements.txt
-echo Installing packages from rag/requirements.txt...
-pip install -r rag/requirements.txt
+REM Add conda-forge channel for more package availability
+echo Adding conda-forge channel...
+call conda config --env --add channels conda-forge
+call conda config --env --set channel_priority flexible
+
+REM Install conda packages from requirements-conda.txt
+echo Installing packages using conda...
+call conda install --file requirements-conda.txt
+
+REM Install pip packages from requirements-pip.txt
+echo Installing pip-specific packages...
+call pip install -r requirements-pip.txt
+
+REM Final check for any missing dependencies from the original requirements.txt
+echo Checking for any missing dependencies...
+call pip install -r requirements.txt
 
 REM Check installation status
 if %errorlevel% neq 0 (
