@@ -21,12 +21,9 @@ class ChromaDBConfig:
     host: str
     port: int
     default_collection: str
-    manual_info_collection: str # Add this field
-    # <<< ADDED Collections >>>
+    manual_info_collection: str 
     unspsc_collection: str
     common_collection: str
-
-# <<< ADDED PostgreSQL Config >>>
 @dataclass
 class PostgreSQLConfig:
     host: str
@@ -47,7 +44,7 @@ class AppConfig:
     server: ServerConfig
     chromadb: ChromaDBConfig
     auth: AuthConfig
-    postgres: PostgreSQLConfig  # ADDED PostgreSQL config
+    postgres: PostgreSQLConfig 
 
 def load_config(config_path: Optional[str] = None) -> AppConfig:
     """Load configuration from YAML file and environment variables.

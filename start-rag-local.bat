@@ -195,7 +195,7 @@ if defined size (
 REM Clean up temp file
 del temp_ports.txt 2>nul
 
-REM Run the app.py directly rather than using uvicorn
+REM Run the main.py directly rather than using uvicorn
 echo Starting RAG service on %SERVER_HOST%:%SERVER_PORT%...
 if "%PERSISTENT%"=="true" (
     echo [Persistence Mode] RAG service will connect to ChromaDB at %CHROMA_HOST%:%CHROMA_PORT%
@@ -207,7 +207,10 @@ if "%AUTH_ENABLED%"=="true" (
     echo [Authentication Disabled] Authentication is disabled for the RAG service.
     set ENABLE_AUTH=false
 )
-conda run -n %CONDA_ENV_NAME% --no-capture-output --live-stream python .\rag\app.py
+conda run -n %CONDA_ENV_NAME% --no-capture-output --live-stream --cwd "%PROJECT_ROOT%" ^
+    python -m rag.main ^
+    --server-port=%SERVER_PORT% ^
+    --server-host=%SERVER_HOST%
 
 echo ==================================
 echo RAG service stopped.

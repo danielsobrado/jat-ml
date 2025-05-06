@@ -172,3 +172,5 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+data/docker/chroma/chroma.sqlite3
+data/docker/chroma/
