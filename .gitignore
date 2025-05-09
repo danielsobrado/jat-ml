@@ -174,3 +174,7 @@ cython_debug/
 .pypirc
 data/docker/chroma/chroma.sqlite3
 data/docker/chroma/
+temp_ports.txt
+uv.lock
+.python-version
+pyproject.toml
