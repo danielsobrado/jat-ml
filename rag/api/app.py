@@ -12,6 +12,7 @@ from rag.db.vector_store import vector_store
 # Make the import explicit if not already done for clarity
 from rag.db.postgres_reader import fetch_unspsc_commodities, engine as pg_engine # Import engine too
 from rag.api.routes import auth, collections, items, search, rag_info
+from rag.api.routes import chat as chat_router # ADDED: Import the new chat router
 from rag.api.models import StatusResponse
 
 logger = logging.getLogger("app")
@@ -220,6 +221,7 @@ def create_app() -> FastAPI:
         prefix="/v1/rag-info",
         tags=["RAG Information"]
     )
+    app.include_router(chat_router.router) # ADDED: Include the chat router
 
     # Register Startup Event
     @app.on_event("startup")

@@ -91,3 +91,21 @@ class RagInfoPageResponse(BaseModel):
     totalCount: int = Field(..., description="Total number of items matching filters")
     totalPages: int = Field(..., description="Total number of pages")
     currentPage: int = Field(..., description="The current page number (1-based)")
+
+# --- Chat Models ---
+class ChatMessagePy(BaseModel):
+    id: Optional[str] = None
+    role: str # "user", "assistant", "system"
+    content: str
+    # createdAt: Optional[datetime] = None # Keep it simple for now
+
+class GenAIChatRequest(BaseModel):
+    messages: List[ChatMessagePy]
+    stream: Optional[bool] = Field(default=True)
+    model: Optional[str] = None
+    # max_tokens: Optional[int] = None # Example: if you want to pass max_tokens
+
+class GenAIChatResponseChunk(BaseModel):
+    text: Optional[str] = None
+    done: bool
+    error: Optional[str] = None
