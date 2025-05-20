@@ -1,0 +1,1862 @@
+Files:
+File: rag/config.py
+"""Configuration loader for the application."""
+import os
+import yaml
+from typing import Dict, Any, Optional
+import logging
+from dataclasses import dataclass, field # Import field
+
+# Set up basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("config")
+
+@dataclass
+class ServerConfig:
+    host: str
+    port: int
+    log_level: str
+    environment: str
+
+@dataclass
+class ChromaDBConfig:
+    host: str
+    port: int
+    default_collection: str
+    manual_info_collection: str 
+    unspsc_collection: str
+    common_collection: str
+@dataclass
+class PostgreSQLConfig:
+    host: str
+    port: int
+    user: str
+    password: str
+    dbname: str
+
+@dataclass
+class AuthConfig:
+    enabled: bool
+    secret_key: str
+    token_expire_minutes: int
+    default_admin: Dict[str, str]
+
+@dataclass
+class AppConfig:
+    server: ServerConfig
+    chromadb: ChromaDBConfig
+    auth: AuthConfig
+    postgres: PostgreSQLConfig 
+
+def load_config(config_path: Optional[str] = None) -> AppConfig:
+    """Load configuration from YAML file and environment variables.
+    
+    Args:
+        config_path: Path to YAML config file (optional, defaults to config.yaml in cwd)
+        
+    Returns:
+        AppConfig: Application configuration
+    """
+    # Default config file path
+    if config_path is None:
+        config_path = os.environ.get("CONFIG_PATH", "config.yaml") # Look for config.yaml relative to where script is run
+    
+    logger.info(f"Attempting to load configuration from: {config_path}")
+
+    # Load config from YAML
+    config_data = {}
+    try:
+        # Try absolute path first
+        abs_config_path = os.path.abspath(config_path)
+        logger.debug(f"Absolute config path: {abs_config_path}")
+        with open(abs_config_path, "r") as f:
+            config_data = yaml.safe_load(f)
+            logger.info(f"Successfully loaded config from absolute path: {abs_config_path}")
+    except FileNotFoundError:
+         logger.warning(f"Config file not found at absolute path {abs_config_path}. Trying relative path {config_path}")
+         try:
+              with open(config_path, "r") as f:
+                  config_data = yaml.safe_load(f)
+                  logger.info(f"Successfully loaded config from relative path: {config_path}")
+         except FileNotFoundError:
+              logger.warning(f"Config file not found at {config_path}. Using default values and environment variables.")
+         except Exception as e:
+              logger.error(f"Error loading config file from relative path {config_path}: {e}")
+    except Exception as e:
+        logger.error(f"Error loading config file from absolute path {abs_config_path}: {e}")
+
+    if not isinstance(config_data, dict): # Handle empty or invalid YAML
+        logger.warning(f"Config data loaded from {config_path} is not a dictionary or is empty. Relying on defaults/env vars.")
+        config_data = {}
+
+
+    # Server config with environment variable overrides
+    server_config_yaml = config_data.get("server", {})
+    server = ServerConfig(
+        host=os.environ.get("SERVER_HOST", server_config_yaml.get("host", "0.0.0.0")),
+        port=int(os.environ.get("SERVER_PORT", server_config_yaml.get("port", 8080))),
+        log_level=os.environ.get("LOG_LEVEL", server_config_yaml.get("log_level", "INFO")).upper(),
+        environment=os.environ.get("ENVIRONMENT", server_config_yaml.get("environment", "production"))
+    )
+    
+    # ChromaDB config with environment variable overrides
+    chromadb_config_yaml = config_data.get("chromadb", {})
+    chromadb = ChromaDBConfig(
+        host=os.environ.get("CHROMA_HOST", chromadb_config_yaml.get("host", "localhost")),
+        port=int(os.environ.get("CHROMA_PORT", chromadb_config_yaml.get("port", 8000))),
+        default_collection=os.environ.get(
+            "DEFAULT_COLLECTION", 
+            chromadb_config_yaml.get("default_collection", "unspsc_categories")
+        ),
+        # Add manual_info_collection loading
+        manual_info_collection=os.environ.get(
+            "MANUAL_INFO_COLLECTION",
+            chromadb_config_yaml.get("manual_info_collection", "rag_manual_info") # Default name
+        ),
+        # Add unspsc_collection and common_collection loading
+        unspsc_collection=os.environ.get(
+            "UNSPSC_COLLECTION",
+            chromadb_config_yaml.get("unspsc_collection", "unspsc_categories")
+        ),
+        common_collection=os.environ.get(
+            "COMMON_COLLECTION",
+            chromadb_config_yaml.get("common_collection", "common_categories")
+        )
+    )
+    
+    # Auth config with environment variable overrides
+    auth_config_yaml = config_data.get("auth", {})
+    default_admin_yaml = auth_config_yaml.get("default_admin", {})
+    auth = AuthConfig(
+        enabled=os.environ.get("ENABLE_AUTH", str(auth_config_yaml.get("enabled", True))).lower() == "true",
+        secret_key=os.environ.get("SECRET_KEY", auth_config_yaml.get("secret_key", "CHANGE_THIS_TO_A_SECURE_SECRET")),
+        token_expire_minutes=int(os.environ.get(
+            "ACCESS_TOKEN_EXPIRE_MINUTES", 
+            auth_config_yaml.get("token_expire_minutes", 30)
+        )),
+        default_admin={
+            "username": os.environ.get("ADMIN_USERNAME", default_admin_yaml.get("username", "admin")),
+            "password": os.environ.get("ADMIN_PASSWORD", default_admin_yaml.get("password", "admin"))
+        }
+    )
+    
+    # PostgreSQL config with environment variable overrides
+    postgres_config_yaml = config_data.get("postgres", {})
+    postgres = PostgreSQLConfig(
+        host=os.environ.get("PG_HOST", postgres_config_yaml.get("host", "localhost")),
+        port=int(os.environ.get("PG_PORT", postgres_config_yaml.get("port", 5433))),
+        user=os.environ.get("PG_USER", postgres_config_yaml.get("user", "unspsc")),
+        password=os.environ.get("PG_PASSWORD", postgres_config_yaml.get("password", "unspsc")),
+        dbname=os.environ.get("PG_DBNAME", postgres_config_yaml.get("dbname", "unspsc"))
+    )
+    
+    # Log loaded config (mask sensitive info if needed)
+    logger.info("Configuration Loaded:")
+    logger.info(f"  Server: host={server.host}, port={server.port}, log_level={server.log_level}, env={server.environment}")
+    logger.info(f"  ChromaDB: host={chromadb.host}, port={chromadb.port}, default_collection='{chromadb.default_collection}', manual_info_collection='{chromadb.manual_info_collection}', unspsc_collection='{chromadb.unspsc_collection}', common_collection='{chromadb.common_collection}'")
+    logger.info(f"  PostgreSQL: host={postgres.host}, port={postgres.port}, user='{postgres.user}', dbname='{postgres.dbname}'")
+    logger.info(f"  Auth: enabled={auth.enabled}, token_expire={auth.token_expire_minutes}m, admin_user='{auth.default_admin['username']}'")
+    if not auth.secret_key or auth.secret_key == "CHANGE_THIS_TO_A_SECURE_SECRET":
+         logger.warning("Security warning: Using default or missing SECRET_KEY. Please set a strong secret key in config or environment variable.")
+
+    return AppConfig(server=server, chromadb=chromadb, auth=auth, postgres=postgres)
+
+# Global config instance
+config = load_config()
+
+def get_server_settings(self) -> ServerConfig:
+    """Get server settings from configuration"""
+    server_config_yaml = self.config_yaml.get("server", {})
+    
+    return ServerConfig(
+        host=server_config_yaml.get("host", "0.0.0.0"),
+        port=int(os.environ.get("SERVER_PORT", server_config_yaml.get("port", 8090))),
+        environment=server_config_yaml.get("environment", "production"),
+        log_level=server_config_yaml.get("log_level", "INFO"),
+    )
+
+File: rag/main.py
+from fastapi import FastAPI
+import uvicorn
+from loguru import logger
+import os
+import argparse
+
+# Import the app from __init__.py
+from . import app
+
+# Configure logging
+logger.add("rag_service.log", rotation="500 MB", level="INFO")
+
+if __name__ == "__main__":
+    logger.info("Starting RAG service...")
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Run the RAG service")
+    parser.add_argument("--server-port", type=int, default=8090, help="Port for the server")
+    parser.add_argument("--server-host", type=str, default="0.0.0.0", help="Host for the server")
+    args = parser.parse_args()
+    
+    try:
+        # Get port from command line args or environment variable or default
+        port = args.server_port
+        host = args.server_host
+        
+        logger.info(f"Starting server on {host}:{port}")
+        
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="info"
+        )
+    except Exception as e:
+        logger.error(f"Failed to start RAG service: {str(e)}")
+        raise
+
+File: rag/__init__.py
+# RAG Package initialization
+from .api.app import app
+
+# Import main module to register routes
+from . import main
+
+
+File: rag/utils/logging.py
+# Logging utilities 
+
+
+File: rag/db/postgres_reader.py
+# rag/db/postgres_reader.py
+import logging
+from typing import List, Dict, Any
+from sqlalchemy import create_engine, text
+
+from rag.config import config # Import the global config
+
+logger = logging.getLogger("postgres_reader")
+
+DATABASE_URL = f"postgresql+psycopg2://{config.postgres.user}:{config.postgres.password}@{config.postgres.host}:{config.postgres.port}/{config.postgres.dbname}"
+
+try:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    logger.info(f"SQLAlchemy engine created for {config.postgres.host}:{config.postgres.port}/{config.postgres.dbname}")
+except Exception as e:
+    logger.error(f"Failed to create SQLAlchemy engine: {e}", exc_info=True)
+    engine = None # Set engine to None if creation fails
+
+def fetch_unspsc_commodities() -> List[Dict[str, Any]]:
+    """Fetches UNSPSC Commodity level categories from the PostgreSQL database."""
+    if engine is None:
+        logger.error("Database engine not initialized. Cannot fetch UNSPSC commodities.")
+        return []
+
+    # Find the system ID for UNSPSC
+    system_id_query = text("SELECT id FROM classification_systems WHERE code = 'UNSPSC' LIMIT 1")
+    # Find the level code for Commodity (assuming it's level 4 and code 'commodity')
+    commodity_level_code = 'commodity' # Assuming this is the code stored in classification_levels
+
+    items = []
+    try:
+        with engine.connect() as connection:
+            logger.info("Fetching UNSPSC System ID...")
+            result = connection.execute(system_id_query)
+            system_id_row = result.fetchone()
+            if not system_id_row:
+                logger.error("UNSPSC system not found in classification_systems table.")
+                return []
+            unspsc_system_id = system_id_row[0]
+            logger.info(f"Found UNSPSC System ID: {unspsc_system_id}")
+
+            # Fetch commodities for the UNSPSC system
+            commodity_query = text(f"""
+                SELECT code, name, description
+                FROM categories
+                WHERE system_id = :system_id AND level_code = :level_code
+            """)
+            logger.info(f"Fetching categories for system_id={unspsc_system_id}, level_code='{commodity_level_code}'...")
+            result = connection.execute(commodity_query, {"system_id": unspsc_system_id, "level_code": commodity_level_code})
+
+            for row in result:
+                items.append({
+                    "code": row[0],
+                    "name": row[1],
+                    "description": row[2] if row[2] else row[1] # Use name if description is null
+                })
+            logger.info(f"Fetched {len(items)} UNSPSC commodity categories.")
+
+    except Exception as e:
+        logger.error(f"Error fetching UNSPSC commodities from PostgreSQL: {e}", exc_info=True)
+        return [] # Return empty list on error
+
+    return items
+
+File: rag/utils/__init__.py
+# Utilities package 
+
+
+File: rag/db/__init__.py
+# Database package 
+
+
+File: rag/db/vector_store.py
+"""ChromaDB vector store interaction."""
+from http.client import HTTPException
+import logging
+import os
+import requests
+from typing import List, Dict, Any, Optional, Tuple
+import time
+from datetime import datetime, timezone
+
+import chromadb
+from chromadb.utils import embedding_functions
+from chromadb.config import Settings
+from requests.exceptions import ConnectionError
+
+from rag.config import config
+
+# Use configured values
+CHROMA_HOST = config.chromadb.host
+CHROMA_PORT = config.chromadb.port
+DEFAULT_COLLECTION = config.chromadb.default_collection
+MANUAL_INFO_COLLECTION = config.chromadb.manual_info_collection
+
+logger = logging.getLogger("vector_store")
+
+# --- Metadata Keys ---
+# Use constants for metadata field names for consistency and easier refactoring
+META_TYPE = "item_type"       # To distinguish manual info from categories etc.
+META_KEY = "original_key"    # Store the original key in metadata for filtering
+META_CREATED_AT = "created_at_iso"
+META_UPDATED_AT = "updated_at_iso"
+TYPE_MANUAL = "manual_info"
+
+class VectorStore:
+    """ChromaDB vector store wrapper."""
+    
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None):
+        """Initialize ChromaDB client."""
+        self.host = host or CHROMA_HOST
+        self.port = port or CHROMA_PORT
+        # Consider making embedding function configurable if needed
+        self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
+        self.manual_info_collection_name = MANUAL_INFO_COLLECTION # Store configured name
+        self.client = self._initialize_client()
+        # Run migrations after client is fully initialized
+        try:
+            self._migrate_manual_info_metadata()
+        except Exception as e:
+            logger.error(f"Error during metadata migration: {e}")
+
+    def _migrate_manual_info_metadata(self):
+        """Migrates existing manual info items to ensure they have all required metadata fields."""
+        collection = self._get_manual_info_collection()
+        try:
+            # Get all manual info items
+            results = collection.get(
+                where={META_TYPE: TYPE_MANUAL},
+                include=['metadatas', 'documents']
+            )
+            
+            if not results or not results.get('ids') or not results['ids']:
+                logger.info("No manual info items found for metadata migration.")
+                return
+            
+            updated_count = 0
+            for i in range(len(results['ids'])):
+                doc_id = results['ids'][i]
+                document = results['documents'][i] if results.get('documents') and i < len(results['documents']) else ""
+                metadata = results['metadatas'][i] if results.get('metadatas') and i < len(results['metadatas']) else {}
+                
+                # Check if name field is missing from metadata
+                if 'name' not in metadata:
+                    # Update metadata with name field
+                    updated_metadata = metadata.copy()
+                    updated_metadata['name'] = doc_id  # Use document ID (key) as name
+                    
+                    # Update the item
+                    collection.update(
+                        ids=[doc_id],
+                        metadatas=[updated_metadata]
+                    )
+                    updated_count += 1
+                    logger.info(f"Migrated metadata for item: {doc_id}, added name field")
+            
+            if updated_count > 0:
+                logger.info(f"Migration completed: updated {updated_count} manual info items with name field")
+            else:
+                logger.info("No manual info items needed metadata migration.")
+                
+        except Exception as e:
+            logger.error(f"Error during manual info metadata migration: {e}")
+
+    def _initialize_client(self):
+        """Initialize ChromaDB client."""
+        try:
+            self._check_server_availability()
+            logger.info(f"Attempting to connect to ChromaDB HTTP Client at {self.host}:{self.port}")
+            client = chromadb.HttpClient(
+                host=self.host,
+                port=self.port,
+                # Explicitly specify tenant and database parameters
+                tenant="default_tenant",
+                database="default_database"
+            )
+            client.heartbeat() # Test connection
+            logger.info("Successfully connected to ChromaDB server via HTTP.")
+            
+            return client
+        except Exception as e:
+            logger.warning(f"Failed to connect to ChromaDB server: {e}. Using persistent local client.")
+            # Use a persistent directory instead of in-memory
+            persist_dir = os.path.join("data", "chroma", "db")
+            # Ensure directory exists
+            os.makedirs(persist_dir, exist_ok=True)
+            logger.info(f"Using persistent ChromaDB client with directory: {persist_dir}")
+            # Create client with persistence
+            client = chromadb.Client(Settings(persist_directory=persist_dir))
+            
+            return client
+
+    def _check_server_availability(self):
+        """Check if ChromaDB server is available."""
+        # Simplified check for brevity
+        try:
+            response = requests.get(f"http://{self.host}:{self.port}/api/v1/heartbeat", timeout=2)
+            response.raise_for_status() # Raises error for bad status (4xx or 5xx)
+            logger.debug("ChromaDB server heartbeat check successful.")
+            return True
+        except Exception as e:
+            logger.warning(f"ChromaDB server heartbeat check failed: {e}")
+            raise ConnectionError(f"Cannot connect to ChromaDB at http://{self.host}:{self.port}") from e
+
+    def test_connection(self) -> bool:
+        """Test the connection to ChromaDB."""
+        try:
+            self.client.heartbeat()
+            return True
+        except Exception as e:
+            logger.error(f"ChromaDB connection error: {e}")
+            return False
+
+    def _get_manual_info_collection(self):
+        """Helper to get the specific collection for manual RAG info."""
+        return self.client.get_or_create_collection(
+            name=self.manual_info_collection_name,
+            embedding_function=self.embedding_function
+        )
+    
+    def list_collections(self) -> List[Dict[str, Any]]:
+        """List all collections with their details."""
+        collections = []
+        try:
+            for collection in self.client.list_collections():
+                try:
+                    col = self.client.get_collection(collection.name, embedding_function=self.embedding_function)
+                    count = col.count()
+                    collections.append({
+                        "name": collection.name,
+                        "count": count
+                    })
+                except Exception as e:
+                    logger.warning(f"Error getting details for collection {collection.name}: {e}")
+                    collections.append({
+                        "name": collection.name,
+                        "count": -1  # Error indicator
+                    })
+        except Exception as e:
+            logger.error(f"Error listing collections: {e}")
+        return collections
+    
+    def get_collection(self, collection_name: str, create_if_not_exists: bool = True):
+        """Get or create a collection."""
+        try:
+            # Always try get_or_create if create_if_not_exists is True
+            if create_if_not_exists:
+                 logger.info(f"Getting or creating collection: {collection_name}")
+                 return self.client.get_or_create_collection(
+                     name=collection_name,
+                     embedding_function=self.embedding_function
+                 )
+            else:
+                 # Only get if not creating
+                 logger.info(f"Getting existing collection: {collection_name}")
+                 return self.client.get_collection(
+                     name=collection_name,
+                     embedding_function=self.embedding_function
+                 )
+        except Exception as e:
+             logger.error(f"Error accessing collection {collection_name}: {e}")
+             raise # Re-raise the exception
+    
+    def delete_collection(self, collection_name: str) -> bool:
+        """Delete a collection.
+        
+        Args:
+            collection_name: Name of the collection to delete
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self.client.delete_collection(collection_name)
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting collection {collection_name}: {e}")
+            return False
+    
+    def add_items(self, collection_name: str, items: List[Dict[str, Any]]) -> int:
+        """Add items to a collection.
+        
+        Args:
+            collection_name: Name of the collection
+            items: List of items to add, each containing code, name, description, etc.
+            
+        Returns:
+            Number of items added
+        """
+        collection = self.get_collection(collection_name)
+        
+        # Prepare data for ChromaDB
+        ids = [item["code"] for item in items]
+        documents = [item["description"] for item in items]
+        metadatas = []
+        
+        for item in items:
+            # Create metadata
+            metadata = {
+                "code": item["code"],
+                "name": item["name"],
+                "hierarchy": item.get("hierarchy", "")
+            }
+            # Add any additional metadata
+            if "metadata" in item:
+                metadata.update(item["metadata"])
+            metadatas.append(metadata)
+        
+        # Add to ChromaDB
+        collection.add(
+            ids=ids,
+            documents=documents,
+            metadatas=metadatas
+        )
+        
+        return len(items)
+    
+    def search(
+        self,
+        collection_name: str,
+        query: str,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Search for similar items in a collection."""
+        logger.info(f"Vector store searching for '{query}' in collection '{collection_name}' with limit {limit}")
+        
+        collection = self.get_collection(collection_name, create_if_not_exists=False) # Don't create on search
+
+        results = collection.query(
+            query_texts=[query],
+            n_results=limit,
+            include=['metadatas', 'documents', 'distances'] # Ensure necessary fields are included
+        )
+
+        formatted_results = []
+        if results and results.get("ids") and results["ids"][0]: # Check if results are valid
+             ids = results["ids"][0]
+             metadatas = results.get("metadatas", [[]])[0]
+             documents = results.get("documents", [[]])[0]
+             distances = results.get("distances", [[]])[0]
+             
+             result_count = len(ids)
+             logger.info(f"Vector store found {result_count} results for '{query}' in '{collection_name}'")
+
+             for i in range(len(ids)):
+                 metadata = metadatas[i] if i < len(metadatas) else {}
+                 document = documents[i] if i < len(documents) else ""
+                 
+                 # Calculate similarity score (1 - distance) for cosine distance
+                 # For L2 distance, similarity might need a different formula or just use distance
+                 similarity = 0.0
+                 if i < len(distances) and distances[i] is not None:
+                    # Assuming default embedding function uses cosine distance where lower is better
+                    similarity = 1.0 - distances[i]
+
+                 formatted_results.append({
+                     "code": ids[i], # ID is the code for categories
+                     "name": metadata.get("name", ""),
+                     "description": document,  # Include the actual document content as description
+                     "hierarchy": metadata.get("hierarchy", ""),
+                     "similarity_score": similarity,
+                     "metadata": { # Exclude common fields from general metadata
+                         k: v for k, v in metadata.items()
+                         if k not in ["name", "hierarchy", "code"]
+                     }
+                 })
+                 
+                 # Log top 3 results with more detail
+                 if i < 3:
+                     doc_excerpt = document[:50] + "..." if document and len(document) > 50 else document
+                     logger.debug(f"Result {i+1}: code={ids[i]}, name='{metadata.get('name', '')}', similarity={similarity:.3f}, document='{doc_excerpt}'")
+                     
+        else:
+            logger.info(f"No results found for '{query}' in '{collection_name}'")
+            
+        return formatted_results
+    
+    def search_all_collections(
+        self, 
+        query: str, 
+        limit_per_collection: int = 3,
+        min_score: float = 0.0
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Search for similar items across all collections."""
+        logger.info(f"Vector store searching all collections for query: '{query}', limit_per_collection: {limit_per_collection}, min_score: {min_score}")
+        
+        all_results = {}
+        collections = self.client.list_collections()
+        logger.info(f"Searching across {len(collections)} collections")
+        
+        for collection in collections:
+            # Skip the manual info collection in this generic search
+            if collection.name == self.manual_info_collection_name:
+                continue
+            try:
+                logger.debug(f"Searching collection '{collection.name}' for '{query}'")
+                results = self.search(
+                    collection_name=collection.name,
+                    query=query,
+                    limit=limit_per_collection
+                )
+                
+                # Filter by minimum score
+                filtered_results = [r for r in results if r["similarity_score"] >= min_score]
+                
+                if filtered_results:
+                    all_results[collection.name] = filtered_results
+                    logger.info(f"Found {len(filtered_results)} results in '{collection.name}' for '{query}' (after min_score filtering)")
+                else:
+                    logger.info(f"No results with similarity >= {min_score} found in '{collection.name}' for '{query}'")
+            except Exception as e:
+                logger.warning(f"Error searching collection '{collection.name}' for '{query}': {e}")
+                continue
+        
+        total_results_count = sum(len(results) for results in all_results.values())
+        logger.info(f"Completed search_all_collections for '{query}'. Total results: {total_results_count} across {len(all_results)} collections")
+        return all_results
+
+    # --- New Methods for Manual RAG Info ---
+
+    def add_manual_info(self, key: str, description: str) -> Dict[str, Any]:
+        """Adds a manual information item to its specific collection."""
+        collection = self._get_manual_info_collection()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        metadata = {
+            META_TYPE: TYPE_MANUAL,
+            META_KEY: key, # Store original key in metadata too
+            META_CREATED_AT: now_iso,
+            META_UPDATED_AT: now_iso,
+            "name": key,  # Add name field to metadata with key as value
+        }
+        doc_id = key # Use the key as the document ID
+
+        try:
+            collection.add(
+                ids=[doc_id],
+                documents=[description],
+                metadatas=[metadata]
+            )
+            logger.info(f"Added manual info item with key: {key}, description: '{description[:50]}{'...' if len(description) > 50 else ''}'")
+            return {
+                "id": doc_id,
+                "key": key,
+                "description": description,
+                "createdAt": now_iso,
+                "updatedAt": now_iso
+            }
+        except Exception as e: # Catch potential duplicate ID errors etc.
+             logger.error(f"Error adding manual info for key '{key}': {e}")
+             # Re-raise or handle specific exceptions (like DuplicateIdError if library provides it)
+             raise HTTPException(status_code=409, detail=f"Item with key '{key}' might already exist.") from e
+
+
+    def get_manual_info(self, key: str) -> Optional[Dict[str, Any]]:
+        """Gets a manual information item by its key."""
+        collection = self._get_manual_info_collection()
+        try:
+            result = collection.get(ids=[key], include=['metadatas', 'documents'])
+            if not result or not result.get('ids') or not result['ids']:
+                logger.warning(f"Manual info item not found for key: {key}")
+                return None
+
+            doc_id = result['ids'][0]
+            document = result['documents'][0] if result.get('documents') else ""
+            metadata = result['metadatas'][0] if result.get('metadatas') else {}
+
+            # Verify it's the correct type
+            if metadata.get(META_TYPE) != TYPE_MANUAL:
+                 logger.warning(f"Retrieved item with key '{key}' but it's not of type '{TYPE_MANUAL}'")
+                 return None
+
+
+            return {
+                "id": doc_id,
+                "key": metadata.get(META_KEY, doc_id), # Prefer original key from metadata
+                "description": document,
+                "createdAt": metadata.get(META_CREATED_AT),
+                "updatedAt": metadata.get(META_UPDATED_AT)
+            }
+        except Exception as e:
+            logger.error(f"Error getting manual info for key '{key}': {e}")
+            return None
+
+    def update_manual_info(self, key: str, description: str) -> Optional[Dict[str, Any]]:
+        """Updates the description of a manual information item."""
+        collection = self._get_manual_info_collection()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # First, verify the item exists and get its current metadata
+        existing_item = self.get_manual_info(key)
+        if not existing_item:
+            return None # Item not found
+
+        # Prepare updated metadata
+        updated_metadata = {
+            META_TYPE: TYPE_MANUAL,
+            META_KEY: key,
+            META_CREATED_AT: existing_item.get("createdAt", now_iso), # Keep original creation time
+            META_UPDATED_AT: now_iso,
+            "name": key,  # Add name field to metadata with key as value
+        }
+
+        try:
+            collection.update(
+                ids=[key],
+                documents=[description],
+                metadatas=[updated_metadata]
+            )
+            logger.info(f"Updated manual info item with key: {key}, description: '{description[:50]}{'...' if len(description) > 50 else ''}'")
+            return {
+                "id": key,
+                "key": key,
+                "description": description,
+                "createdAt": updated_metadata[META_CREATED_AT],
+                "updatedAt": updated_metadata[META_UPDATED_AT]
+            }
+        except Exception as e:
+            logger.error(f"Error updating manual info for key '{key}': {e}")
+            return None # Indicate update failure
+
+    def delete_manual_info(self, key: str) -> bool:
+        """Deletes a manual information item by its key."""
+        collection = self._get_manual_info_collection()
+        try:
+            # First get the item to log its description before deleting
+            existing = self.get_manual_info(key)
+            if not existing:
+                logger.warning(f"Attempted to delete non-existent manual info item: {key}")
+                return False
+
+            collection.delete(ids=[key])
+            logger.info(f"Deleted manual info item with key: {key}, description: '{existing['description'][:50]}{'...' if len(existing['description']) > 50 else ''}'")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting manual info for key '{key}': {e}")
+            return False
+
+    def list_manual_info(self, page: int = 1, limit: int = 10, search: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int]:
+        """Lists manual information items with pagination and optional search."""
+        collection = self._get_manual_info_collection()
+        offset = (page - 1) * limit
+
+        where_clause = {META_TYPE: TYPE_MANUAL}
+        where_document_clause = None
+
+        if search:
+            # Simple search: check if search term is in key metadata OR description document
+            # Note: This might be slow for large datasets without specific indexing.
+            # Option 1: Search key metadata (exact match for now)
+            # where_clause[META_KEY] = search
+            # Option 2: Search document content
+            where_document_clause = {"$contains": search}
+            # Option 3: Combine? Could use $or in where_document if supported robustly
+            # For now, let's prioritize document search for flexibility
+            logger.debug(f"Applying search filter (in description): '{search}'")
+
+
+        try:
+            # First, get the total count matching the filter
+            # Note: ChromaDB's count() doesn't directly support where_document.
+            # We have to fetch all matching IDs/metadata first, then count. This isn't ideal for large datasets.
+            # A more scalable approach might involve fetching only IDs/metadata and then counting.
+            all_matching_items = collection.get(
+                 where=where_clause,
+                 where_document=where_document_clause,
+                 include=[] # Don't need full data for count
+            )
+            total_count = len(all_matching_items['ids']) if all_matching_items and all_matching_items.get('ids') else 0
+            logger.debug(f"Total count for manual info matching filter: {total_count}")
+
+
+            # Then, get the paginated results
+            results = collection.get(
+                where=where_clause,
+                where_document=where_document_clause, # Apply search filter here too
+                limit=limit,
+                offset=offset,
+                include=['metadatas', 'documents']
+            )
+
+            items_data = []
+            if results and results.get('ids') and results['ids']:
+                for i in range(len(results['ids'])):
+                    doc_id = results['ids'][i]
+                    document = results['documents'][i] if results.get('documents') and i < len(results['documents']) else ""
+                    metadata = results['metadatas'][i] if results.get('metadatas') and i < len(results['metadatas']) else {}
+
+                    items_data.append({
+                        "id": doc_id,
+                        "key": metadata.get(META_KEY, doc_id),
+                        "description": document,
+                        "createdAt": metadata.get(META_CREATED_AT),
+                        "updatedAt": metadata.get(META_UPDATED_AT)
+                    })
+
+            return items_data, total_count
+
+        except Exception as e:
+            logger.error(f"Error listing manual info: {e}")
+            return [], 0
+
+# Global vector store instance
+vector_store = VectorStore()
+
+File: rag/api/auth.py
+"""Authentication and authorization utilities."""
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Union
+from functools import wraps
+
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from pydantic import BaseModel
+# In auth.py, change:
+from rag.api.models import Token, User, UserInDB  # Import from models
+
+from rag.config import config
+
+logger = logging.getLogger("auth")
+
+# Security models
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+class User(BaseModel):
+    username: str
+    disabled: Optional[bool] = None
+
+class UserInDB(User):
+    hashed_password: str
+
+# Initialize security utilities
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+# Mock user database - replace with a real database in production
+fake_users_db = {
+    config.auth.default_admin["username"]: {
+        "username": config.auth.default_admin["username"],
+        "hashed_password": pwd_context.hash(config.auth.default_admin["password"]),
+        "disabled": False
+    }
+}
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    """Hash a password."""
+    return pwd_context.hash(password)
+
+def get_user(db: Dict, username: str) -> Optional[UserInDB]:
+    """Get a user from the database."""
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+    return None
+
+def authenticate_user(db: Dict, username: str, password: str) -> Union[UserInDB, bool]:
+    """Authenticate a user."""
+    user = get_user(db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, config.auth.secret_key, algorithm="HS256")
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    """Get the current user from token."""
+    # If auth is disabled, return a default admin user
+    if not config.auth.enabled:
+        return User(username="admin", disabled=False)
+
+    # No token provided
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, config.auth.secret_key, algorithms=["HS256"])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+    user = get_user(fake_users_db, username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
+    """Get the current active user."""
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+def create_user(username: str, password: str, disabled: bool = False) -> User:
+    """Create a new user."""
+    if username in fake_users_db:
+        raise ValueError(f"User {username} already exists")
+    
+    fake_users_db[username] = {
+        "username": username,
+        "hashed_password": get_password_hash(password),
+        "disabled": disabled
+    }
+    
+    return User(username=username, disabled=disabled)
+
+def conditional_auth(func):
+    """Decorator to conditionally apply authentication."""
+    @wraps(func)
+    async def wrapper(*args, current_user: User = Depends(get_current_active_user), **kwargs):
+        if config.auth.enabled:
+            # current_user will be filled by the dependency
+            return await func(*args, current_user=current_user, **kwargs)
+        else:
+            # Auth is disabled, call without current_user
+            return await func(*args, **kwargs)
+    return wrapper
+
+File: rag/api/app.py
+# rag/api/app.py
+"""FastAPI application initialization."""
+import logging
+import asyncio # <--- Import asyncio
+import time
+
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+
+from rag.config import config
+from rag.db.vector_store import vector_store
+# Make the import explicit if not already done for clarity
+from rag.db.postgres_reader import fetch_unspsc_commodities, engine as pg_engine # Import engine too
+from rag.api.routes import auth, collections, items, search, rag_info
+from rag.api.models import StatusResponse
+
+logger = logging.getLogger("app")
+
+# --- Startup Event Function (Combined Check & Populate) ---
+async def startup_event():
+    """Ensure required ChromaDB collections exist and populate UNSPSC if needed."""
+    logger.info("Running startup tasks...")
+    start_time_overall = time.time()
+
+    # Get the current running event loop
+    loop = asyncio.get_running_loop()
+
+    # Allow some time for ChromaDB container to potentially start
+    wait_time = 5 # seconds
+    logger.info(f"Waiting {wait_time} seconds for ChromaDB service to potentially initialize...")
+    await asyncio.sleep(wait_time) # asyncio.sleep is non-blocking
+
+    # 1. Ensure ALL required collections exist (This part is usually fast, but could also be run in executor if needed)
+    required_collections = [
+        config.chromadb.manual_info_collection,
+        config.chromadb.unspsc_collection,
+        config.chromadb.common_collection
+    ]
+    logger.info(f"Ensuring ChromaDB collections exist: {required_collections}")
+    collections_ok = True
+    for col_name in required_collections:
+        try:
+            # vector_store.get_collection uses get_or_create, which might block briefly on creation.
+            # For startup, this is often acceptable, but could be wrapped if creation is slow.
+            await loop.run_in_executor(
+                None, # Use default thread pool executor
+                vector_store.get_collection, # The function to run
+                col_name, # Arguments for the function
+                True      # create_if_not_exists=True
+            )
+            logger.info(f"Collection '{col_name}' ensured.")
+        except Exception as e:
+            logger.error(f"CRITICAL: Failed to get or create collection '{col_name}': {e}", exc_info=True)
+            collections_ok = False
+
+    if not collections_ok:
+        logger.error("Aborting further startup tasks due to collection creation errors.")
+        return
+
+    # 2. Check and populate UNSPSC collection if empty
+    unspsc_collection_name = config.chromadb.unspsc_collection
+    logger.info(f"Checking population status for '{unspsc_collection_name}'...")
+    try:
+        # Get collection instance (should exist now)
+        # Running get_collection again in executor for consistency
+        unspsc_collection = await loop.run_in_executor(
+            None, vector_store.get_collection, unspsc_collection_name, False
+        )
+        # count() might also be blocking
+        count = await loop.run_in_executor(None, unspsc_collection.count)
+        logger.info(f"Collection '{unspsc_collection_name}' current item count: {count}")
+
+        if count == 0:
+            logger.info(f"Collection '{unspsc_collection_name}' is empty. Attempting to populate from PostgreSQL...")
+            populate_start_time = time.time()
+
+            # Fetch data from PostgreSQL in a separate thread
+            logger.info("Fetching UNSPSC data from PostgreSQL...")
+            if pg_engine is None:
+                 logger.error("PostgreSQL engine not initialized. Skipping population.")
+                 unspsc_items = []
+            else:
+                # Wrap the synchronous fetch_unspsc_commodities in run_in_executor
+                unspsc_items = await loop.run_in_executor(None, fetch_unspsc_commodities)
+                logger.info(f"Fetched {len(unspsc_items)} UNSPSC commodities from PostgreSQL.")
+
+
+            if not unspsc_items:
+                logger.warning(f"No UNSPSC commodity items fetched. Collection '{unspsc_collection_name}' will remain empty.")
+            else:
+                logger.info(f"Preparing and adding {len(unspsc_items)} items in batches...")
+
+                ids = [item["code"] for item in unspsc_items]
+                documents = [item.get("description") or item.get("name", "") for item in unspsc_items]
+                metadatas = [
+                    {
+                        "code": item["code"],
+                        "name": item["name"],
+                        "item_type": "unspsc_commodity"
+                    } for item in unspsc_items
+                ]
+
+                batch_size = 500 # Adjust as needed
+                added_count = 0
+                total_batches = (len(ids) + batch_size - 1) // batch_size
+                batch_start_time = time.time()
+
+                for i in range(0, len(ids), batch_size):
+                    batch_num = i // batch_size + 1
+                    logger.info(f"Processing batch {batch_num}/{total_batches}...")
+                    batch_ids = ids[i:i+batch_size]
+                    batch_docs = documents[i:i+batch_size]
+                    batch_metas = metadatas[i:i+batch_size]
+
+                    try:
+                        # --- Run the blocking ChromaDB add operation in a thread ---
+                        await loop.run_in_executor(
+                            None,         # Use default thread pool executor
+                            lambda: unspsc_collection.add(  # Use lambda to pass named parameters
+                                ids=batch_ids,
+                                documents=batch_docs,
+                                metadatas=batch_metas
+                            )
+                        )
+                        # --- End run_in_executor ---
+
+                        added_count += len(batch_ids)
+                        current_time = time.time()
+                        logger.info(f"Added batch {batch_num}/{total_batches} ({len(batch_ids)} items). Total added: {added_count}. Batch took: {current_time - batch_start_time:.2f}s")
+                        batch_start_time = current_time # Reset timer for next batch
+
+                        # Optional: yield control briefly between batches if needed
+                        # await asyncio.sleep(0.01)
+
+                    except Exception as batch_e:
+                         logger.error(f"Error adding batch {batch_num} to '{unspsc_collection_name}': {batch_e}", exc_info=True)
+                         logger.warning("Stopping population due to batch error.")
+                         break
+
+                # Final count might also block, run in executor
+                final_count = await loop.run_in_executor(None, unspsc_collection.count)
+                populate_duration = time.time() - populate_start_time
+                logger.info(f"Finished populating '{unspsc_collection_name}'. Total items added: {added_count}, Final count: {final_count}, Duration: {populate_duration:.2f}s")
+        else:
+            logger.info(f"Collection '{unspsc_collection_name}' already contains data ({count} items). Skipping population.")
+
+    except Exception as e:
+        logger.error(f"Error during check/population of collection '{unspsc_collection_name}': {e}", exc_info=True)
+
+    overall_duration = time.time() - start_time_overall
+    logger.info(f"Startup tasks completed in {overall_duration:.2f} seconds.")
+
+
+# (Keep the rest of create_app function as is)
+# ...
+
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    app = FastAPI(
+        title="RAG Classification Support API",
+        description="API for storing and retrieving classification data and manual RAG information.",
+        version="1.1.0",
+    )
+
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Add health check endpoint
+    @app.get("/health")
+    async def health_check():
+        """Get API health status."""
+        return {"status": "ok"}
+
+    @app.get("/", response_model=StatusResponse, tags=["status"])
+    async def get_status():
+        """Get API status and information."""
+        try:
+            # Check ChromaDB connection (test_connection might block briefly)
+            # Consider running it in executor too if it causes issues, but heartbeat is usually fast.
+            chroma_connected = await asyncio.get_running_loop().run_in_executor(
+                None, vector_store.test_connection
+            )
+
+            collections = []
+            if chroma_connected:
+                try:
+                    # list_collections involves count() per collection, run in executor
+                    collections_info = await asyncio.get_running_loop().run_in_executor(
+                        None, vector_store.list_collections
+                    )
+                    collections = [c["name"] for c in collections_info]
+                except Exception as e:
+                    logger.error(f"Error listing collections during status check: {e}")
+
+            return {
+                "status": "ok",
+                "chroma_connected": chroma_connected,
+                "collections": collections,
+                "auth_enabled": config.auth.enabled
+            }
+        except Exception as e:
+            logger.error(f"Status check error: {e}", exc_info=True) # Log stack trace for status errors
+            # Avoid raising 500 for status check unless critical, return unhealthy status maybe?
+            # For now, keep raise as it indicates a problem getting status.
+            raise HTTPException(status_code=500, detail=f"API status check error: {str(e)}")
+
+    # Include routers
+    app.include_router(auth.router)
+    app.include_router(collections.router)
+    app.include_router(items.router)
+    app.include_router(search.router)
+    app.include_router(
+        rag_info.router,
+        prefix="/v1/rag-info",
+        tags=["RAG Information"]
+    )
+
+    # Register Startup Event
+    @app.on_event("startup")
+    async def on_startup():
+        # Run the startup event itself as a background task
+        # This allows the server to start accepting requests *immediately*
+        # while the potentially long-running population happens in the background.
+        logger.info("Scheduling startup tasks (incl. potential population) to run in background.")
+        asyncio.create_task(startup_event())
+        # If you absolutely need population to finish *before* serving requests,
+        # remove the create_task and just call await startup_event() here,
+        # but accept that startup time will be longer.
+        # await startup_event() # <--- Alternative: Blocks startup until finished
+
+    logger.info(f"FastAPI app created. Auth enabled: {config.auth.enabled}")
+    return app
+
+# Create the FastAPI app instance
+app = create_app()
+
+File: rag/api/__init__.py
+# API package 
+
+
+File: rag/api/models.py
+# rag/api/models.py
+"""Pydantic models for API requests and responses."""
+from typing import Dict, List, Optional
+from pydantic import BaseModel, Field, ConfigDict
+from datetime import datetime # Import datetime
+
+# --- Keep existing models (Token, NewUserRequest, CategoryItem, etc.) ---
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class NewUserRequest(BaseModel):
+    username: str
+    password: str
+    disabled: bool = False
+
+# Item models
+class CategoryItem(BaseModel):
+    code: str
+    name: str
+    description: str
+    hierarchy: str = ""
+    metadata: Dict = Field(default_factory=dict)
+
+class BatchAddRequest(BaseModel):
+    items: List[CategoryItem]
+    collection_name: str
+
+# Search models
+class SimilarityResult(BaseModel):
+    code: str
+    name: str
+    description: str = ""  # Add description field with default empty string
+    hierarchy: str
+    similarity_score: float
+    metadata: Dict
+
+class SimilarityResponse(BaseModel):
+    query: str
+    collection_name: str
+    results: List[SimilarityResult]
+
+class MultiCollectionSearchResponse(BaseModel):
+    query: str
+    results: Dict[str, List[SimilarityResult]]
+
+# Collection models
+class CollectionInfo(BaseModel):
+    name: str
+    count: int
+
+class ListCollectionsResponse(BaseModel):
+    collections: List[CollectionInfo]
+
+# Status models
+class StatusResponse(BaseModel):
+    status: str
+    chroma_connected: bool
+    collections: List[str]
+    auth_enabled: bool
+
+class User(BaseModel):
+    username: str
+    disabled: Optional[bool] = None
+
+class UserInDB(User):
+    hashed_password: str
+
+# --- RAG Info Models ---
+class RagInfoItemBase(BaseModel):
+    key: str = Field(..., description="Unique key for the information")
+    description: str = Field(..., description="The textual information content")
+
+class RagInfoItemCreate(RagInfoItemBase):
+    pass # Same fields as base for creation
+
+class RagInfoItemUpdate(BaseModel):
+    # Only description is updatable via the frontend modal
+    description: str = Field(..., description="The updated textual information")
+
+class RagInfoItem(RagInfoItemBase):
+    id: str = Field(..., description="Unique identifier (same as key in this implementation)")
+    createdAt: datetime = Field(..., description="Creation timestamp")
+    updatedAt: datetime = Field(..., description="Last update timestamp")
+
+    # Use model_config for Pydantic V2
+    model_config = ConfigDict(from_attributes=True)
+
+class RagInfoPageResponse(BaseModel):
+    items: List[RagInfoItem]
+    totalCount: int = Field(..., description="Total number of items matching filters")
+    totalPages: int = Field(..., description="Total number of pages")
+    currentPage: int = Field(..., description="The current page number (1-based)")
+
+File: rag/api/routes/auth.py
+"""Authentication routes."""
+import logging
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+
+from rag.config import config
+from rag.api.auth import (
+    authenticate_user, create_access_token, get_current_active_user, 
+    fake_users_db, create_user
+)
+from rag.api.models import Token, User, NewUserRequest
+
+logger = logging.getLogger("auth_routes")
+
+router = APIRouter(tags=["authentication"])
+
+@router.post("/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    """OAuth2 compatible token login, get an access token for future requests."""
+    if not config.auth.enabled:
+        # If auth is disabled, return a dummy token
+        access_token = create_access_token(data={"sub": "admin"})
+        return {"access_token": access_token, "token_type": "bearer"}
+    
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=config.auth.token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/users", response_model=User)
+async def create_new_user(user_request: NewUserRequest, current_user: User = Depends(get_current_active_user)):
+    """Create a new user (admin only)."""
+    if not config.auth.enabled:
+        return {"message": "Authentication is disabled, user not created"}
+    
+    if current_user.username != config.auth.default_admin["username"]:
+        raise HTTPException(status_code=403, detail="Only admin can create users")
+    
+    try:
+        return create_user(
+            username=user_request.username,
+            password=user_request.password,
+            disabled=user_request.disabled
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/users/me", response_model=User)
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    """Get current user information."""
+    return current_user
+
+File: rag/api/routes/items.py
+"""Item management routes."""
+import logging
+
+from fastapi import APIRouter, HTTPException, Depends
+
+from rag.db.vector_store import vector_store
+from rag.api.auth import conditional_auth, User
+from rag.api.models import BatchAddRequest
+
+logger = logging.getLogger("item_routes")
+
+router = APIRouter(tags=["items"])
+
+from pydantic import ValidationError
+
+@router.post("/add_batch")
+async def add_batch(request: dict):
+    try:
+        # Try to validate the request manually
+        batch_request = BatchAddRequest(**request)
+        
+        # If validation passes, proceed
+        count = vector_store.add_items(
+            batch_request.collection_name,
+            [item.dict() for item in batch_request.items]
+        )
+        
+        return {
+            "message": f"Successfully added {len(batch_request.items)} items to collection {batch_request.collection_name}",
+            "count": len(batch_request.items)
+        }
+    except ValidationError as e:
+        # Log the validation error details
+        logger.error(f"Validation error: {e.json()}")
+        raise HTTPException(status_code=422, detail=e.errors())
+    except Exception as e:
+        logger.error(f"Error adding batch: {e}")
+        raise HTTPException(status_code=500, detail=f"Error adding batch: {str(e)}")
+
+File: rag/api/routes/collections.py
+"""Collection management routes."""
+import logging
+
+from fastapi import APIRouter, HTTPException, Depends, Path
+
+from rag.db.vector_store import vector_store
+from rag.api.auth import conditional_auth, User
+from rag.api.models import ListCollectionsResponse, CollectionInfo
+
+logger = logging.getLogger("collection_routes")
+
+router = APIRouter(tags=["collections"])
+
+@router.get("/collections", response_model=ListCollectionsResponse)
+async def list_collections():
+    """List all available collections with their item counts."""
+    try:
+        collections = vector_store.list_collections()
+        return {"collections": [CollectionInfo(**c) for c in collections]}
+    except Exception as e:
+        logger.error(f"Error listing collections: {e}")
+        raise HTTPException(status_code=500, detail=f"Error listing collections: {str(e)}")
+
+@router.post("/collection/{collection_name}")
+@conditional_auth
+async def create_collection(
+    collection_name: str = Path(..., description="Collection name"),
+    current_user: User = None
+):
+    """Create a new empty collection."""
+    try:
+        vector_store.get_collection(collection_name)
+        return {"message": f"Collection {collection_name} created successfully"}
+    except Exception as e:
+        logger.error(f"Error creating collection: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating collection: {str(e)}")
+
+@router.delete("/collection/{collection_name}")
+@conditional_auth
+async def delete_collection(
+    collection_name: str = Path(..., description="Collection name"),
+    current_user: User = None
+):
+    """Delete a collection from ChromaDB."""
+    try:
+        if vector_store.delete_collection(collection_name):
+            return {"message": f"Collection {collection_name} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to delete collection {collection_name}")
+    except Exception as e:
+        logger.error(f"Error deleting collection: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting collection: {str(e)}")
+
+File: rag/api/routes/__init__.py
+# Routes package 
+
+
+File: rag/api/routes/search.py
+"""Search routes."""
+import logging
+
+from fastapi import APIRouter, HTTPException, Query
+
+from rag.db.vector_store import vector_store
+from rag.api.models import SimilarityResponse, SimilarityResult, MultiCollectionSearchResponse
+
+logger = logging.getLogger("search_routes")
+
+router = APIRouter(tags=["search"])
+
+@router.get("/search", response_model=SimilarityResponse)
+async def search_similar(
+    query: str = Query(..., description="Description to search for"),
+    collection_name: str = Query(..., description="Collection name"),
+    limit: int = Query(5, description="Number of results to return")
+):
+    """Search for similar items in the specified ChromaDB collection."""
+    logger.info(f"Received search request for query: '{query}' in collection: '{collection_name}', limit: {limit}")
+    
+    try:
+        # Validate input
+        if not query:
+            raise HTTPException(status_code=400, detail="Query is required")
+        
+        if not collection_name:
+            raise HTTPException(status_code=400, detail="Collection name is required")
+        
+        # Get search results
+        results = vector_store.search(
+            collection_name=collection_name,
+            query=query,
+            limit=limit
+        )
+        
+        # Log search results details
+        result_count = len(results)
+        logger.info(f"Search completed for '{query}' in '{collection_name}'. Found {result_count} results.")
+        
+        # Log a preview of top result if available
+        if result_count > 0:
+            top_result = results[0]
+            # Include description in the log if it exists
+            description = top_result.get('description', '')
+            description_preview = f", description: '{description[:50]}{'...' if len(description) > 50 else ''}'" if description else ""
+            logger.info(f"Top result for '{query}': code={top_result.get('code')}, name='{top_result.get('name')}', similarity={top_result.get('similarity_score', 0):.3f}{description_preview}")
+        
+        # Convert to API response model
+        similarity_results = [SimilarityResult(**result) for result in results]
+        
+        return {
+            "query": query,
+            "collection_name": collection_name,
+            "results": similarity_results
+        }
+    except Exception as e:
+        logger.error(f"Search error for query '{query}' in collection '{collection_name}': {e}")
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+@router.get("/search_all", response_model=MultiCollectionSearchResponse)
+async def search_across_collections(
+    query: str = Query(..., description="Description to search for"),
+    limit_per_collection: int = Query(3, description="Number of results per collection"),
+    min_score: float = Query(0.0, description="Minimum similarity score (0-1)")
+):
+    """Search for similar items across all collections."""
+    logger.info(f"Received search_all request for query: '{query}', limit_per_collection: {limit_per_collection}, min_score: {min_score}")
+    
+    try:
+        # Validate input
+        if not query:
+            raise HTTPException(status_code=400, detail="Query is required")
+        
+        # Get search results across all collections
+        all_results = vector_store.search_all_collections(
+            query=query,
+            limit_per_collection=limit_per_collection,
+            min_score=min_score
+        )
+        
+        # Log results summary
+        collection_counts = {coll: len(items) for coll, items in all_results.items()}
+        total_items = sum(len(items) for items in all_results.values())
+        logger.info(f"Search_all completed for '{query}'. Found {total_items} results across {len(all_results)} collections: {collection_counts}")
+        
+        # Log top result from each collection if available
+        for coll_name, items in all_results.items():
+            if items:
+                top_result = items[0]
+                logger.info(f"Top result in '{coll_name}' for '{query}': code={top_result.get('code')}, name='{top_result.get('name')}', similarity={top_result.get('similarity_score', 0):.3f}")
+        
+        # Convert to API response model
+        formatted_results = {
+            collection: [SimilarityResult(**item) for item in items]
+            for collection, items in all_results.items()
+        }
+        
+        return {
+            "query": query,
+            "results": formatted_results
+        }
+    except Exception as e:
+        logger.error(f"Search_all error for query '{query}': {e}")
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+File: rag/api/routes/rag_info.py
+# rag/api/routes/rag_info.py
+"""Routes for managing manual RAG information."""
+import logging
+import math
+from datetime import datetime, timezone
+from typing import Optional # Import Optional
+
+from fastapi import APIRouter, HTTPException, Depends, Query, Path, Body, status
+
+# Assuming vector_store is correctly initialized in rag/db/vector_store.py
+from rag.db.vector_store import vector_store
+# Assuming auth utilities are correctly defined
+from rag.api.auth import User, get_current_active_user
+from rag.api.models import (
+    RagInfoItem,
+    RagInfoItemCreate,
+    RagInfoItemUpdate,
+    RagInfoPageResponse # Use the correct Pydantic model for the list response
+)
+# Assuming config is correctly loaded
+from rag.config import config
+
+logger = logging.getLogger("rag_info_routes")
+
+# Define a placeholder dependency that does nothing when auth is disabled
+# It MUST be an async function if the real dependency is also async
+async def get_no_auth_dependency() -> None:
+    return None
+
+# REMOVED prefix from router definition
+router = APIRouter(tags=["RAG Information"])
+
+DEFAULT_PAGE_SIZE = 10 # Consistent page size
+
+@router.get(
+    "",
+    response_model=RagInfoPageResponse, # Use the correct response model
+    summary="List RAG Information Items",
+    description="Retrieves a paginated list of manually added RAG information items, with optional search.",
+)
+async def list_rag_info(
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search term for key or description"),
+    _user: Optional[User] = Depends(get_current_active_user if config.auth.enabled else get_no_auth_dependency)
+):
+    """
+    Lists manually added RAG information entries with pagination and search.
+    Matches the GET /v1/rag-info endpoint expected by the Go client.
+    """
+    logger.info(f"Listing RAG info: page={page}, limit={limit}, search='{search or ''}'")
+    try:
+        # vector_store.list_manual_info returns a tuple: (list_of_dicts, total_count)
+        items_data, total_count = vector_store.list_manual_info(page=page, limit=limit, search=search)
+
+        items_list = []
+        for item_dict in items_data:
+             try:
+                 # Attempt to parse dates, provide defaults if missing/invalid
+                 # Chroma metadata values are often strings, ensure robust parsing
+                 created_at_str = item_dict.get('createdAt')
+                 updated_at_str = item_dict.get('updatedAt')
+
+                 created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
+                 updated_at = datetime.fromisoformat(updated_at_str) if updated_at_str else datetime.now(timezone.utc)
+
+                 items_list.append(RagInfoItem(
+                     id=str(item_dict.get('id', 'N/A')), # Ensure ID is string
+                     key=str(item_dict.get('key', 'N/A')), # Ensure key is string
+                     description=str(item_dict.get('description', '')),
+                     createdAt=created_at,
+                     updatedAt=updated_at
+                 ))
+             except (ValueError, TypeError) as date_err:
+                  logger.warning(f"Could not parse date for item {item_dict.get('id')}: {date_err}. Using current time.")
+                  # Append with current time as fallback, ensure types match model
+                  items_list.append(RagInfoItem(
+                     id=str(item_dict.get('id', 'parse_error_id')),
+                     key=str(item_dict.get('key', 'parse_error_key')),
+                     description=str(item_dict.get('description', '')),
+                     createdAt=datetime.now(timezone.utc),
+                     updatedAt=datetime.now(timezone.utc)
+                  ))
+
+        total_pages = math.ceil(total_count / limit) if limit > 0 else 1
+
+        return RagInfoPageResponse(
+            items=items_list,
+            totalCount=total_count,
+            totalPages=total_pages,
+            currentPage=page
+        )
+    except Exception as e:
+        logger.error(f"Error listing RAG info: {e}", exc_info=True) # Log stack trace
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve RAG information list."
+        )
+
+@router.post(
+    "",
+    response_model=RagInfoItem,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create RAG Information Item",
+    description="Adds a new key-value information item to the RAG store.",
+)
+async def create_rag_info(
+    item_in: RagInfoItemCreate,
+    _user: Optional[User] = Depends(get_current_active_user if config.auth.enabled else get_no_auth_dependency)
+):
+    """
+    Creates a new manual RAG information entry.
+    Matches the POST /v1/rag-info endpoint.
+    """
+    user_info = _user.username if config.auth.enabled and _user else 'anonymous'
+    logger.info(f"User '{user_info}' creating RAG info item with key: {item_in.key}, description: '{item_in.description[:50]}{'...' if len(item_in.description) > 50 else ''}'")
+    try:
+        # vector_store.add_manual_info should return a dict matching RagInfoItem structure
+        created_item_dict = vector_store.add_manual_info(key=item_in.key, description=item_in.description)
+
+        # Parse dates from the returned dict
+        created_at = datetime.fromisoformat(created_item_dict.get('createdAt'))
+        updated_at = datetime.fromisoformat(created_item_dict.get('updatedAt'))
+
+        return RagInfoItem(
+             id=str(created_item_dict.get('id')),
+             key=str(created_item_dict.get('key')),
+             description=str(created_item_dict.get('description')),
+             createdAt=created_at,
+             updatedAt=updated_at
+         )
+    except HTTPException as http_exc: # Catch potential 409 from vector store add
+         logger.warning(f"HTTP Exception during RAG info creation for key '{item_in.key}': {http_exc.detail}")
+         raise http_exc
+    except Exception as e:
+        logger.error(f"Error creating RAG info for key '{item_in.key}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create RAG information item."
+        )
+
+@router.get(
+    "/{item_id}",
+    response_model=RagInfoItem,
+    summary="Get RAG Information Item",
+    description="Retrieves a specific RAG information item by its key (ID).",
+)
+async def get_rag_info(
+    item_id: str = Path(..., description="The key/ID of the RAG info item to retrieve"),
+    _user: Optional[User] = Depends(get_current_active_user if config.auth.enabled else get_no_auth_dependency)
+):
+    """
+    Retrieves a specific manual RAG information item by its key.
+    Matches the GET /v1/rag-info/{id} endpoint.
+    """
+    logger.debug(f"Attempting to retrieve RAG info item with key: {item_id}")
+    try:
+        item_dict = vector_store.get_manual_info(key=item_id)
+        if item_dict is None:
+            logger.warning(f"RAG info item not found: {item_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RAG info item not found")
+
+        # Parse dates
+        created_at_str = item_dict.get('createdAt')
+        updated_at_str = item_dict.get('updatedAt')
+        created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
+        updated_at = datetime.fromisoformat(updated_at_str) if updated_at_str else datetime.now(timezone.utc)
+
+        return RagInfoItem(
+            id=str(item_dict.get('id')),
+            key=str(item_dict.get('key')),
+            description=str(item_dict.get('description')),
+            createdAt=created_at,
+            updatedAt=updated_at
+        )
+    except HTTPException:
+         raise # Re-raise HTTP 404
+    except (ValueError, TypeError) as date_err:
+        logger.error(f"Error parsing date for RAG info item '{item_id}': {date_err}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to parse date format for the item.")
+    except Exception as e:
+        logger.error(f"Error retrieving RAG info for key '{item_id}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve RAG information item."
+        )
+
+@router.put(
+    "/{item_id}",
+    response_model=RagInfoItem,
+    summary="Update RAG Information Item",
+    description="Updates the description of an existing RAG information item.",
+)
+async def update_rag_info(
+    item_id: str = Path(..., description="The key/ID of the item to update"),
+    item_update: RagInfoItemUpdate = Body(...),
+    _user: Optional[User] = Depends(get_current_active_user if config.auth.enabled else get_no_auth_dependency)
+):
+    """
+    Updates the description of a specific manual RAG information item.
+    Matches the PUT /v1/rag-info/{id} endpoint.
+    """
+    user_info = _user.username if config.auth.enabled and _user else 'anonymous'
+    logger.info(f"User '{user_info}' updating RAG info item: {item_id}, description: '{item_update.description[:50]}{'...' if len(item_update.description) > 50 else ''}'")
+    try:
+        # vector_store.update_manual_info should return a dict or None
+        updated_item_dict = vector_store.update_manual_info(key=item_id, description=item_update.description)
+        if updated_item_dict is None:
+            logger.warning(f"Attempted to update non-existent RAG info item: {item_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RAG info item not found")
+
+        # Parse dates
+        created_at_str = updated_item_dict.get('createdAt')
+        updated_at_str = updated_item_dict.get('updatedAt')
+        created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
+        updated_at = datetime.fromisoformat(updated_at_str) if updated_at_str else datetime.now(timezone.utc)
+
+        return RagInfoItem(
+            id=str(updated_item_dict.get('id')),
+            key=str(updated_item_dict.get('key')),
+            description=str(updated_item_dict.get('description')),
+            createdAt=created_at,
+            updatedAt=updated_at
+        )
+    except HTTPException:
+         raise # Re-raise HTTP 404
+    except (ValueError, TypeError) as date_err:
+        logger.error(f"Error parsing date for updated RAG info item '{item_id}': {date_err}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to parse date format for the updated item.")
+    except Exception as e:
+        logger.error(f"Error updating RAG info for key '{item_id}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update RAG information item."
+        )
+
+@router.delete(
+    "/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete RAG Information Item",
+    description="Deletes a specific RAG information item by its key (ID).",
+)
+async def delete_rag_info(
+    item_id: str = Path(..., description="The key/ID of the item to delete"),
+    _user: Optional[User] = Depends(get_current_active_user if config.auth.enabled else get_no_auth_dependency)
+):
+    """
+    Deletes a specific manual RAG information item by its key.
+    Matches the DELETE /v1/rag-info/{id} endpoint.
+    """
+    user_info = _user.username if config.auth.enabled and _user else 'anonymous'
+    logger.info(f"User '{user_info}' deleting RAG info item: {item_id}")
+    try:
+        # vector_store.delete_manual_info returns bool
+        deleted = vector_store.delete_manual_info(key=item_id)
+        if not deleted:
+            # To provide accurate 404, check if it existed right before trying to delete
+            # (There's a small race condition window here, but generally okay)
+            if vector_store.get_manual_info(key=item_id) is None:
+                 logger.warning(f"Attempted to delete RAG info item that was not found: {item_id}")
+                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RAG info item not found")
+            else:
+                 # If it exists but delete failed, it's likely an internal error
+                 logger.error(f"Delete operation failed unexpectedly for RAG info item: {item_id}")
+                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete RAG information item.")
+        # If deleted is True, FastAPI automatically returns 204 No Content
+        return None
+    except HTTPException:
+        raise # Re-raise HTTP 404 or others
+    except Exception as e:
+        logger.error(f"Error deleting RAG info for key '{item_id}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete RAG information item."
+        )
+
+.
