@@ -14,3 +14,8 @@ tenacity==9.1.2
 requests==2.31.0
 sqlalchemy>=1.4.0  # ADDED for PostgreSQL integration
 psycopg2-binary>=2.9.0  # ADDED for PostgreSQL driver
+# LangGraph and LangChain dependencies
+langchain==0.3.25
+langgraph==0.4.5
+langchain_openai==0.3.17
+langchain_core==0.3.60
