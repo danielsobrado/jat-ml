@@ -178,3 +178,4 @@ temp_ports.txt
 uv.lock
 .python-version
 pyproject.toml
+data/graph_definitions/

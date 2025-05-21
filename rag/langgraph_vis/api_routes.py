@@ -2,6 +2,7 @@
 import logging
 import os
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -153,8 +154,7 @@ async def list_graph_definitions(
         graph_def = _load_graph_definition_from_file(graph_id)
         if graph_def:
             saved_graphs.append(
-                GraphDefinitionIdentifier(id=graph_def.id, name=graph_def.name, updated_at=graph_def.updated_at)
-            )
+                GraphDefinitionIdentifier(id=graph_def.id, name=graph_def.name, updated_at=graph_def.updated_at)            )
     
     if include_static:
         for name, compiled_graph in STATIC_GRAPHS.items():
@@ -164,11 +164,11 @@ async def list_graph_definitions(
             # A better approach would be to also store a GraphDefinition JSON for static graphs if they need to be listed here.
             mock_id = f"static_{name}"
             if not any(g.id == mock_id for g in saved_graphs): # Avoid duplicates if somehow saved
-                 saved_graphs.append(
+                saved_graphs.append(
                     GraphDefinitionIdentifier(
                         id=mock_id, # Placeholder ID for static graphs
                         name=f"[STATIC] {name.replace('_', ' ').title()}",
-                        updated_at=compiled_graph.compiled_at if hasattr(compiled_graph, 'compiled_at') else None # type: ignore
+                        updated_at=compiled_graph.compiled_at if hasattr(compiled_graph, 'compiled_at') else datetime.utcnow() # Default to current time if no timestamp available
                     )
                 )
 

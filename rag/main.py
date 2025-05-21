@@ -11,10 +11,10 @@ from . import app
 logger.add("rag_service.log", rotation="500 MB", level="INFO")
 
 if __name__ == "__main__":
-    logger.info("Starting RAG service...")
+    logger.info("Starting Agentic Workflows service...")
     
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Run the RAG service")
+    parser = argparse.ArgumentParser(description="Run the Agentic Workflows service")
     parser.add_argument("--server-port", type=int, default=8090, help="Port for the server")
     parser.add_argument("--server-host", type=str, default="0.0.0.0", help="Host for the server")
     args = parser.parse_args()
