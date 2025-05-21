@@ -58,8 +58,28 @@ class GraphDefinition(BaseModel):
     # For clarity, let's allow defining nodes that should always transition to END if they are terminal.
     terminal_node_ids: Optional[List[str]] = Field(default_factory=list, description="Optional: List of node IDs that should implicitly transition to the global END state if they don't have other outgoing edges.")
     version: int = Field(1, description="Version of this graph definition structure.")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of creation.")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of last update.")
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="Timestamp of creation.")
+    updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="Timestamp of last update.")
+
+    @field_validator('created_at', 'updated_at', mode='before')
+    @classmethod
+    def parse_datetime(cls, v):
+        # Handle None values
+        if v is None:
+            return datetime.utcnow()
+        # If string, parse it correctly to datetime
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    return datetime.strptime(v, "%Y-%m-%dT%H:%M:%S.%fZ")
+                except ValueError:
+                    try:
+                        return datetime.strptime(v, "%Y-%m-%dT%H:%M:%SZ")
+                    except ValueError:
+                        return datetime.utcnow()  # Default to current time if parsing fails
+        return v
 
     @field_validator('updated_at', mode='before')
     @classmethod
@@ -123,7 +143,27 @@ class GraphDefinitionIdentifier(BaseModel):
     """Minimal information to identify a graph definition."""
     id: str = Field(..., description="Unique ID of the graph definition.")
     name: str = Field(..., description="Name of the graph definition.")
-    updated_at: datetime = Field(..., description="Last update timestamp.")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp.")
+
+    @field_validator('updated_at', mode='before')
+    @classmethod
+    def parse_datetime(cls, v):
+        # Handle None values
+        if v is None:
+            return None
+        # If string, parse it correctly to datetime
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    return datetime.strptime(v, "%Y-%m-%dT%H:%M:%S.%fZ")
+                except ValueError:
+                    try:
+                        return datetime.strptime(v, "%Y-%m-%dT%H:%M:%SZ")
+                    except ValueError:
+                        return datetime.utcnow()  # Default to current time if parsing fails
+        return v
 
 class GraphDefinitionListResponse(BaseModel):
     """Response model for listing available graph definitions."""
