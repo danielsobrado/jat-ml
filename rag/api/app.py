@@ -28,22 +28,23 @@ async def startup_event():
     loop = asyncio.get_running_loop()
     wait_time = 5
     logger.info(f"Waiting {wait_time} seconds for ChromaDB service to potentially initialize...")
-    await asyncio.sleep(wait_time)
-
-    required_collections = [
+    await asyncio.sleep(wait_time)    required_collections = [
         config.chromadb.manual_info_collection,
         config.chromadb.unspsc_collection,
         config.chromadb.common_collection
     ]
     logger.info(f"Ensuring ChromaDB collections exist: {required_collections}")
     collections_ok = True
-    for col_name in required_collections:
+    for i, col_name in enumerate(required_collections):
         try:
             await loop.run_in_executor(None, vector_store.get_collection, col_name, True)
             logger.info(f"Collection '{col_name}' ensured.")
         except Exception as e:
             logger.error(f"CRITICAL: Failed to get or create collection '{col_name}': {e}", exc_info=True)
             collections_ok = False
+        # Yield control after each collection check to prevent blocking
+        if i % 1 == 0:
+            await asyncio.sleep(0)
     if not collections_ok:
         logger.error("Aborting further startup tasks due to collection creation errors.")
         return
@@ -81,11 +82,15 @@ async def startup_event():
                     logger.info(f"Processing batch {batch_num}/{total_batches}...")
                     batch_ids, batch_docs, batch_metas = ids[i:i+batch_size], documents[i:i+batch_size], metadatas[i:i+batch_size]
                     try:
-                        await loop.run_in_executor(None, lambda: unspsc_collection.add(ids=batch_ids, documents=batch_docs, metadatas=batch_metas))
+                        await loop.run_in_executor(None, lambda: unspsc_collection.add(ids=batch_ids, documents=batch_docs, metadatas=batch_metas))        # After populating each batch, yield control to let other tasks run
                         added_count += len(batch_ids)
                         current_time = time.time()
                         logger.info(f"Added batch {batch_num}/{total_batches} ({len(batch_ids)} items). Total added: {added_count}. Batch took: {current_time - batch_start_time:.2f}s")
                         batch_start_time = current_time
+                        # Yield to the event loop periodically during large ingestions
+                        if batch_num % 5 == 0:  # Every 5 batches
+                            logger.debug(f"Yielding event loop during UNSPSC population after batch {batch_num}")
+                            await asyncio.sleep(0)
                     except Exception as batch_e:
                          logger.error(f"Error adding batch {batch_num} to '{unspsc_collection_name}': {batch_e}", exc_info=True)
                          logger.warning("Stopping population due to batch error.")
