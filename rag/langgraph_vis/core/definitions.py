@@ -34,9 +34,23 @@ class DocumentProcessingState(BaseModel):
     class Config:
         extra = "allow"
 
+# --- Helper function for simulation delay ---
+async def apply_simulation_delay(config: Optional[Dict[str, Any]], default_delay_s: float = 0):
+    """Applies a delay if simulation_delay_ms is found in config."""
+    if config and "simulation_delay_ms" in config:
+        delay_ms = config.get("simulation_delay_ms", 0)
+        if isinstance(delay_ms, (int, float)) and delay_ms > 0:
+            await asyncio.sleep(delay_ms / 1000.0)
+            logger.debug(f"Applied simulation delay: {delay_ms}ms")
+            return
+    # Fallback to any hardcoded default delay if present (though we're removing them)
+    elif default_delay_s > 0:
+        await asyncio.sleep(default_delay_s)
+
 # --- 2. Example Node Functions/Runnables ---
 async def entry_point_node(state: BasicAgentState, config: Optional[Dict[str, Any]] = None) -> BasicAgentState:
     logger.info(f"Executing entry_point_node with config: {config}")
+    await apply_simulation_delay(config) 
     if not state.get("messages"): 
         state["messages"] = []
     state["messages"].append(HumanMessage(content="Workflow started by entry_point_node"))
@@ -44,7 +58,9 @@ async def entry_point_node(state: BasicAgentState, config: Optional[Dict[str, An
     return state
 
 async def simple_message_modifier_node(state: BasicAgentState, config: Optional[Dict[str, Any]] = None) -> BasicAgentState:
-    logger.info(f"Executing simple_message_modifier_node with config: {config}")
+    node_id_for_log = config.get("node_id_for_log", "simple_message_modifier_node") if config else "simple_message_modifier_node"
+    logger.info(f"Executing {node_id_for_log} with config: {config}")
+    await apply_simulation_delay(config)
     prefix = config.get("message_prefix", "Modified: ") if config else "Modified: "
     if state.get("messages") and state["messages"]: # Check if messages list exists and is not empty
         last_message_content = state["messages"][-1].content
@@ -55,10 +71,12 @@ async def simple_message_modifier_node(state: BasicAgentState, config: Optional[
     return state
 
 async def simulated_llm_node(state: DocumentProcessingState, config: Optional[Dict[str, Any]] = None) -> DocumentProcessingState:
-    logger.info(f"Executing simulated_llm_node with config: {config}")
+    node_id_for_log = config.get("node_id_for_log", "simulated_llm_node") if config else "simulated_llm_node"
+    logger.info(f"Executing {node_id_for_log} with config: {config}")
+    await apply_simulation_delay(config) 
     action = config.get("action", "summarize") if config else "summarize"
     doc_to_process = state.processed_document or state.original_document
-    await asyncio.sleep(0.1) 
+    # No default hardcoded delay, use simulation_delay_ms instead
     if action == "summarize":
         state.summary = f"Simulated summary of: {doc_to_process[:50]}..."
         state.confidence_score = 0.85
@@ -74,6 +92,9 @@ async def simulated_llm_node(state: DocumentProcessingState, config: Optional[Di
 
 async def simulated_tool_node(state: BasicAgentState, config: Optional[Dict[str, Any]] = None) -> BasicAgentState:
     tool_name = config.get("tool_name", "generic_tool") if config else "generic_tool"
+    node_id_for_log = config.get("node_id_for_log", f"simulated_tool_node:{tool_name}") if config else f"simulated_tool_node:{tool_name}"
+    logger.info(f"Executing {node_id_for_log} with config: {config}")
+    await apply_simulation_delay(config) 
     tool_input_key = config.get("input_key", "tool_input") if config else "tool_input" 
     tool_output_key = config.get("output_key", "tool_output") if config else "tool_output"
     tool_input_value = "No specific input provided"
@@ -82,7 +103,7 @@ async def simulated_tool_node(state: BasicAgentState, config: Optional[Dict[str,
     elif state.get(tool_input_key): # type: ignore
         tool_input_value = state[tool_input_key] # type: ignore
     logger.info(f"Executing simulated_tool_node: {tool_name} with input: '{tool_input_value}'")
-    await asyncio.sleep(0.05)
+    # No default hardcoded delay, use simulation_delay_ms instead
     tool_result = f"Result from {tool_name} for input '{tool_input_value}'"
     if not state.get("messages"): state["messages"] = [] # Ensure messages list exists
     state["messages"].append(ToolMessage(content=tool_result, tool_call_id=tool_name)) # type: ignore

@@ -17,10 +17,7 @@ from .schemas import (
     EdgeTakenEvent,
     GraphExecutionEndEvent,
     GraphErrorEvent,
-    # Potentially a model for initial WebSocket message if structured
-    # class WebSocketInitialMessage(BaseModel):
-    #     input_args: Dict[str, Any] = Field(default_factory=dict)
-    #     config_overrides: Optional[Dict[str, Any]] = None
+    ExecuteGraphRequest as WebSocketInitialMessage, # Use ExecuteGraphRequest for initial message
 )
 
 # Graph building and loading
@@ -135,21 +132,27 @@ async def _handle_graph_execution_websocket(
             )
             await websocket.send_json(error_event.model_dump(mode="json"))
             await websocket.close(code=1011)
-            return
-
-
-        # 2. Optionally, wait for an initial message from the client with input arguments
-        # This allows the client to provide dynamic inputs right after connecting.
-        # You might have a timeout for this.
+            return        # 2. Wait for initial message from client
         try:
-            # Example: Expecting JSON like {"input_args": {...}, "config_overrides": {...}}
-            # For simplicity, we'll assume client sends input_args directly or it's empty.
-            # This part can be made more robust with a Pydantic model for the initial message.
+            # Wait for and parse the initial message using our Pydantic model
             initial_message_raw = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-            initial_message_data = json.loads(initial_message_raw)
-            initial_input_args = initial_message_data.get("input_args", {})
-            # config_overrides = initial_message_data.get("config_overrides", {}) # TODO: Implement config overrides if needed
-            logger.info(f"Received initial input for exec_id '{execution_id}': {initial_input_args}")
+            initial_message_data_raw = json.loads(initial_message_raw)
+            # Validate with Pydantic model
+            initial_message = WebSocketInitialMessage(**initial_message_data_raw)
+            
+            initial_input_args = initial_message.input_args
+            config_overrides = {}
+            if initial_message.config_overrides:
+                config_overrides = initial_message.config_overrides # Store for later use
+            simulation_delay_ms = None
+            if initial_message.simulation_delay_ms is not None:
+                simulation_delay_ms = initial_message.simulation_delay_ms
+            
+            logger.info(f"Received initial input for exec_id '{execution_id}': args={initial_input_args}, delay_ms={simulation_delay_ms}")
+        except asyncio.TimeoutError:
+            logger.info(f"No initial input message received for exec_id '{execution_id}'. Using defaults.")
+        except (json.JSONDecodeError, Exception) as e: # Catch Pydantic validation errors too
+            logger.warning(f"Invalid initial message for exec_id '{execution_id}': {e}. Using defaults.")
         except asyncio.TimeoutError:
             logger.info(f"No initial input message received within timeout for exec_id '{execution_id}'. Proceeding with empty inputs.")
         except json.JSONDecodeError:
@@ -159,19 +162,32 @@ async def _handle_graph_execution_websocket(
             return # Gracefully exit
         except Exception as e:
             logger.error(f"Error processing initial message for exec_id '{execution_id}': {e}", exc_info=True)
-            # Proceed with empty inputs, or send an error and close
-
-        # 3. Stream Graph Execution Events
+            # Proceed with empty inputs, or send an error and close        # 3. Stream Graph Execution Events
         start_event = GraphExecutionStartEvent(
             execution_id=execution_id, graph_id=graph_id, input_args=initial_input_args
         )
         await websocket.send_json(start_event.model_dump(mode="json"))
 
         # Recursion limit: Important for LangGraph
-        # TODO: Make this configurable, perhaps from initial client message or graph definition
-        recursion_limit = 25
+        recursion_limit = 25 
+        
+        # Prepare config for LangGraph execution
+        execution_config = {"recursion_limit": recursion_limit}
+        if config_overrides: # Merge any explicit config_overrides from client
+            execution_config.update(config_overrides)
+        
+        # THIS IS WHERE YOU PASS simulation_delay_ms TO THE GRAPH'S CONTEXT/CONFIG
+        if simulation_delay_ms is not None:
+            # Since nodes need to check for this value, let's add it to the execution config
+            # Option 1: Pass it through the execution_config so node implementations can access it
+            execution_config["simulation_delay_ms"] = simulation_delay_ms
+            logger.info(f"Execution will use simulation_delay_ms: {simulation_delay_ms} (nodes must be adapted to use it from their config)")
 
-        async for event_chunk in compiled_graph.astream_events(initial_input_args, version="v2", config={"recursion_limit": recursion_limit}):
+        async for event_chunk in compiled_graph.astream_events(
+            initial_input_args, 
+            version="v2", 
+            config=execution_config # Pass the prepared config
+        ):
             event_type = event_chunk["event"]
             event_data = event_chunk.get("data", {})
             event_name = event_chunk.get("name", "") # Often the node name or runnable name

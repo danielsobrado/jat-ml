@@ -195,7 +195,8 @@ class ExecuteGraphRequest(BaseModel):
     """Request to initiate execution of a graph."""
     # graph_id will typically be a path parameter
     input_args: Dict[str, Any] = Field(default_factory=dict, description="Initial input arguments for the graph execution.")
-    # config_overrides: Optional[Dict[str, Any]] = Field(None, description="Optional overrides for graph execution configuration.")
+    config_overrides: Optional[Dict[str, Any]] = Field(None, description="Optional overrides for graph execution configuration.")
+    simulation_delay_ms: Optional[int] = Field(None, ge=0, description="Optional: Simulate delay in ms for each node step.")
 
 class ExecuteGraphResponse(BaseModel):
     """Response after initiating a graph execution (e.g., via HTTP if not solely WebSocket)."""
