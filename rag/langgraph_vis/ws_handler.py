@@ -3,10 +3,14 @@ import logging
 import asyncio
 import json
 import uuid
-from typing import Dict, Any, Optional, List, Literal, Type
+from typing import Dict, Any, Optional, List, Literal, Type, get_type_hints
+import inspect
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends, Query
 from starlette.websockets import WebSocketState # For checking state
+from pydantic import BaseModel, Field
+# Import langchain message types for custom JSON serialization
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 
 # Schemas for WebSocket events and potentially initial messages
 from .schemas import (
@@ -22,12 +26,39 @@ from .schemas import (
 
 # Graph building and loading
 from .core.builder import DynamicGraphBuilder, DynamicGraphBuilderError
-from .core.definitions import STATIC_GRAPHS, STATE_SCHEMAS # For type hints and validation
+from .core.definitions import STATIC_GRAPHS, STATE_SCHEMAS, STATIC_GRAPHS_METADATA # For type hints and validation
 # For loading graph definitions from files
 from .api_routes import _load_graph_definition_from_file # Re-use helper from api_routes
 
 logger = logging.getLogger(__name__)
 router = APIRouter() # Can use a router or define directly on FastAPI app instance
+
+# Custom JSON encoder to handle AIMessage and other LangChain objects
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        # Handle all BaseMessage objects (AIMessage, HumanMessage, etc.)
+        if isinstance(obj, BaseMessage):
+            return {
+                "type": obj.__class__.__name__,
+                "role": getattr(obj, "role", "assistant"),
+                "content": obj.content,
+                "additional_kwargs": obj.additional_kwargs
+            }
+        
+        # Handle other LangChain objects with to_dict() method
+        if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
+            return obj.to_dict()
+            
+        # Handle objects with __dict__ attribute
+        if hasattr(obj, "__dict__"):
+            return obj.__dict__
+            
+        # Try string representation as a last resort for other unserializable objects
+        try:
+            return str(obj)
+        except:
+            # Call the base class implementation for other types
+            return super().default(obj)
 
 # Helper to get a compiled graph (static or dynamic)
 async def get_compiled_graph_for_execution(graph_id: str):
@@ -122,7 +153,16 @@ async def _handle_graph_execution_websocket(
             error_event = GraphErrorEvent(
                 execution_id=execution_id, graph_id=graph_id, message=f"Graph loading/building error: {str(e)}"
             )
-            await websocket.send_json(error_event.model_dump(mode="json"))
+            # Use custom JSON encoder to handle any special objects
+            json_data = json.dumps({
+                "eventType": error_event.event_type,
+                "timestamp": error_event.timestamp.isoformat(),
+                "executionId": error_event.execution_id,
+                "graphId": error_event.graph_id,
+                "message": error_event.message,
+                "details": error_event.details
+            }, cls=CustomJSONEncoder)
+            await websocket.send_text(json_data)
             await websocket.close(code=1011) # Internal error
             return
         except Exception as e: # Catch any other unexpected errors
@@ -130,9 +170,20 @@ async def _handle_graph_execution_websocket(
             error_event = GraphErrorEvent(
                 execution_id=execution_id, graph_id=graph_id, message=f"Unexpected server error preparing graph: {str(e)}"
             )
-            await websocket.send_json(error_event.model_dump(mode="json"))
+            # Use custom JSON encoder to handle any special objects
+            json_data = json.dumps({
+                "eventType": error_event.event_type,
+                "timestamp": error_event.timestamp.isoformat(),
+                "executionId": error_event.execution_id,
+                "graphId": error_event.graph_id,
+                "message": error_event.message,
+                "details": error_event.details
+            }, cls=CustomJSONEncoder)
+            await websocket.send_text(json_data)
             await websocket.close(code=1011)
-            return        # 2. Wait for initial message from client
+            return
+            
+        # 2. Wait for initial message from client
         try:
             # Wait for and parse the initial message using our Pydantic model
             initial_message_raw = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
@@ -161,12 +212,80 @@ async def _handle_graph_execution_websocket(
             logger.info(f"Client disconnected before sending initial input for exec_id '{execution_id}'.")
             return # Gracefully exit
         except Exception as e:
-            logger.error(f"Error processing initial message for exec_id '{execution_id}': {e}", exc_info=True)
-            # Proceed with empty inputs, or send an error and close        # 3. Stream Graph Execution Events
+            logger.error(f"Error processing initial message for exec_id '{execution_id}': {e}", exc_info=True)        # Proceed with empty inputs, or send an error and close
+        
+        # Determine the graph's state schema type and provide default values for required fields
+        state_schema_name = None
+        state_schema_type = None
+        
+        # Special case for DocumentProcessingState - directly check if this is example_document_workflow
+        if graph_id == "static_example_document_workflow" or graph_id.endswith("example_document_workflow"):
+            # Ensure required original_document field is always present
+            if "original_document" not in initial_input_args or not initial_input_args["original_document"]:
+                initial_input_args["original_document"] = "Default document for visualization"
+                logger.info(f"Added required 'original_document' field for DocumentProcessingState in graph '{graph_id}'")
+        
+        # Try to get state schema for static graphs from metadata
+        if graph_id.startswith("static_"):
+            static_graph_name = graph_id[len("static_"):]
+            if static_graph_name in STATIC_GRAPHS_METADATA:
+                state_schema_name = STATIC_GRAPHS_METADATA[static_graph_name].get("state_schema_name")
+                if state_schema_name and state_schema_name in STATE_SCHEMAS:
+                    state_schema_type = STATE_SCHEMAS[state_schema_name]
+                    logger.info(f"Found state schema '{state_schema_name}' for graph '{graph_id}'")
+        
+        # Add required fields based on schema name
+        if state_schema_name == "DocumentProcessingState":
+            # Always ensure original_document is present for DocumentProcessingState
+            if "original_document" not in initial_input_args or not initial_input_args["original_document"]:
+                initial_input_args["original_document"] = "Default document for visualization"
+                logger.info(f"Added required 'original_document' field for DocumentProcessingState")
+        elif state_schema_name == "BasicAgentState":
+            # For BasicAgentState, ensure messages field is present
+            if "messages" not in initial_input_args:
+                initial_input_args["messages"] = []
+                logger.info(f"Added required 'messages' field for BasicAgentState")
+        
+        # For all schema types, try validation and error correction
+        if state_schema_type:
+            try:
+                # For Pydantic models, try to validate with the model
+                if issubclass(state_schema_type, BaseModel):
+                    model_instance = state_schema_type(**initial_input_args)
+                    logger.info(f"Successfully validated input args against {state_schema_name} schema")
+            except Exception as validation_error:
+                error_msg = str(validation_error)
+                logger.warning(f"Validation error for {state_schema_name}: {validation_error}")
+                
+                # Extract field names from error message
+                import re
+                field_errors = re.findall(r"field required for (\w+)", error_msg.lower())
+                
+                for field in field_errors:
+                    if field == "original_document":
+                        initial_input_args[field] = "Default document added after validation error"
+                    elif field == "messages":
+                        initial_input_args[field] = []
+                    else:
+                        # Default to empty string for unknown fields
+                        initial_input_args[field] = ""
+                    logger.info(f"Added missing required field '{field}' based on validation error")
+        
+        logger.info(f"Input args after adding defaults: {initial_input_args}")
+
+        # 3. Stream Graph Execution Events
         start_event = GraphExecutionStartEvent(
             execution_id=execution_id, graph_id=graph_id, input_args=initial_input_args
         )
-        await websocket.send_json(start_event.model_dump(mode="json"))
+        # Use custom JSON encoder to handle any special objects in input args
+        json_data = json.dumps({
+            "eventType": start_event.event_type,
+            "timestamp": start_event.timestamp.isoformat(),
+            "executionId": start_event.execution_id,
+            "graphId": start_event.graph_id,
+            "inputArgs": start_event.input_args
+        }, cls=CustomJSONEncoder)
+        await websocket.send_text(json_data)
 
         # Recursion limit: Important for LangGraph
         recursion_limit = 25 
@@ -215,7 +334,17 @@ async def _handle_graph_execution_websocket(
                         node_id=event_name, # `name` field from event usually corresponds to node ID
                         input_data=event_data.get("input", event_data.get("input_str", {})) # Prefer "input" if available
                     )
-                    await websocket.send_json(node_start_ws_event.model_dump(mode="json"))
+                    # Use custom JSON encoder to handle AIMessage objects
+                    json_data = json.dumps({
+                        "eventType": node_start_ws_event.event_type,
+                        "timestamp": node_start_ws_event.timestamp.isoformat(),
+                        "executionId": node_start_ws_event.execution_id,
+                        "graphId": node_start_ws_event.graph_id,
+                        "nodeId": node_start_ws_event.node_id,
+                        "nodeType": node_start_ws_event.node_type,
+                        "inputData": node_start_ws_event.input_data
+                    }, cls=CustomJSONEncoder)
+                    await websocket.send_text(json_data)
 
                 elif event_type == "on_chain_end" or event_type == "on_tool_end" or event_type == "on_chat_model_end": # General end events for nodes
                     status: Literal["success", "failure"] = "success" # type: ignore
@@ -238,7 +367,20 @@ async def _handle_graph_execution_websocket(
                         error_message=error_msg
                         # duration_ms: event_data.get("duration_ms") # If LangGraph provides this directly
                     )
-                    await websocket.send_json(node_end_ws_event.model_dump(mode="json"))
+                    # Use custom JSON encoder to handle AIMessage objects
+                    json_data = json.dumps({
+                        "eventType": node_end_ws_event.event_type,
+                        "timestamp": node_end_ws_event.timestamp.isoformat(),
+                        "executionId": node_end_ws_event.execution_id,
+                        "graphId": node_end_ws_event.graph_id,
+                        "nodeId": node_end_ws_event.node_id,
+                        "nodeType": node_end_ws_event.node_type,
+                        "outputData": node_end_ws_event.output_data,
+                        "status": node_end_ws_event.status,
+                        "errorMessage": node_end_ws_event.error_message,
+                        "durationMs": node_end_ws_event.duration_ms
+                    }, cls=CustomJSONEncoder)
+                    await websocket.send_text(json_data)
 
             # Check for edge events (experimental based on potential tag)
             # Actual edge traversal might need to be inferred or LangGraph might offer more direct events.
@@ -268,7 +410,17 @@ async def _handle_graph_execution_websocket(
             final_state=final_state_data, # This is an approximation from the stream
             status="completed" # Assuming successful completion if loop finishes
         )
-        await websocket.send_json(graph_end_event.model_dump(mode="json"))
+        # Use custom JSON encoder to handle AIMessage objects
+        json_data = json.dumps({
+            "eventType": graph_end_event.event_type,
+            "timestamp": graph_end_event.timestamp.isoformat(),
+            "executionId": graph_end_event.execution_id,
+            "graphId": graph_end_event.graph_id,
+            "finalState": graph_end_event.final_state,
+            "status": graph_end_event.status,
+            "totalDurationMs": graph_end_event.total_duration_ms
+        }, cls=CustomJSONEncoder)
+        await websocket.send_text(json_data)
         logger.info(f"Graph execution stream completed for exec_id '{execution_id}'.")
 
     except WebSocketDisconnect:
@@ -277,7 +429,16 @@ async def _handle_graph_execution_websocket(
         logger.error(f"Graph Builder Error for exec_id '{execution_id}', graph_id '{graph_id}': {e}")
         if websocket.client_state == WebSocketState.CONNECTED:
             error_event = GraphErrorEvent(execution_id=execution_id, graph_id=graph_id, message=str(e))
-            await websocket.send_json(error_event.model_dump(mode="json"))
+            # Use custom JSON encoder to handle any special objects
+            json_data = json.dumps({
+                "eventType": error_event.event_type,
+                "timestamp": error_event.timestamp.isoformat(),
+                "executionId": error_event.execution_id,
+                "graphId": error_event.graph_id,
+                "message": error_event.message,
+                "details": error_event.details
+            }, cls=CustomJSONEncoder)
+            await websocket.send_text(json_data)
     except Exception as e:
         logger.error(f"Unhandled error during WebSocket execution for exec_id '{execution_id}': {e}", exc_info=True)
         if websocket.client_state == WebSocketState.CONNECTED:
@@ -287,7 +448,16 @@ async def _handle_graph_execution_websocket(
                 message="An unexpected server error occurred during graph execution.",
                 details=str(e)
             )
-            await websocket.send_json(error_event.model_dump(mode="json"))
+            # Use custom JSON encoder to handle any special objects
+            json_data = json.dumps({
+                "eventType": error_event.event_type,
+                "timestamp": error_event.timestamp.isoformat(),
+                "executionId": error_event.execution_id,
+                "graphId": error_event.graph_id,
+                "message": error_event.message,
+                "details": error_event.details
+            }, cls=CustomJSONEncoder)
+            await websocket.send_text(json_data)
     finally:
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close()

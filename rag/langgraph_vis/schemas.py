@@ -5,7 +5,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic.alias_generators import to_camel
 
 # --- Graph Definition Models (for saving/loading graph structures) ---
 
@@ -97,6 +98,12 @@ class WebSocketEventBase(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of when the event occurred.")
     execution_id: str = Field(..., description="Unique ID for this particular graph execution run.")
     graph_id: str = Field(..., description="ID of the graph definition being executed.")
+    
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,  # Allow both snake_case and camelCase when parsing
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
 
 class GraphExecutionStartEvent(WebSocketEventBase):
     event_type: Literal["graph_execution_start"] = "graph_execution_start"

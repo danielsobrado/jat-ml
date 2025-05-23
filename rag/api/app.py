@@ -28,7 +28,8 @@ async def startup_event():
     loop = asyncio.get_running_loop()
     wait_time = 5
     logger.info(f"Waiting {wait_time} seconds for ChromaDB service to potentially initialize...")
-    await asyncio.sleep(wait_time)    required_collections = [
+    await asyncio.sleep(wait_time)    
+    required_collections = [
         config.chromadb.manual_info_collection,
         config.chromadb.unspsc_collection,
         config.chromadb.common_collection

@@ -137,13 +137,43 @@ def agent_router(state: BasicAgentState) -> str:
 # --- 3. Example Static Graph Construction ---
 def create_example_document_workflow() -> CompiledGraph:
     workflow = StateGraph(DocumentProcessingState)
-    workflow.add_node("doc_processor", lambda s: simulated_llm_node(s, config={"action": "summarize", "router_function_name": "document_confidence_router"})) # type: ignore
-    workflow.add_node("final_summary_node", lambda s: simulated_llm_node(s, config={"action": "extract_keywords", "num_keywords": 5})) # type: ignore
-    workflow.add_node("error_handling_node", lambda s: simple_message_modifier_node(s, config={"message_prefix": "StaticError: "})) # type: ignore
+
+    async def _doc_processor_node(state: DocumentProcessingState, invoke_config: Optional[Dict[str, Any]]=None):
+        node_specific_config = {"action": "summarize", "router_function_name": "document_confidence_router", "node_id_for_log": "doc_processor"}
+        final_config = {**node_specific_config, **(invoke_config or {})}
+        return await simulated_llm_node(state, config=final_config)
+
+    async def _final_summary_node(state: DocumentProcessingState, invoke_config: Optional[Dict[str, Any]]=None):
+        node_specific_config = {"action": "extract_keywords", "num_keywords": 5, "node_id_for_log": "final_summary_node"}
+        final_config = {**node_specific_config, **(invoke_config or {})}
+        return await simulated_llm_node(state, config=final_config)
+
+    async def _error_handling_node_doc_workflow(state: DocumentProcessingState, invoke_config: Optional[Dict[str, Any]]=None):
+        node_id_for_log = "error_handling_node"
+        error_prefix = "StaticError: "
+        logger.info(f"Executing {node_id_for_log} with effective config including invoke_config: {invoke_config}")
+        await apply_simulation_delay(invoke_config)
+        state.error_info = (state.error_info or "Error encountered during processing") + \
+                           f" - {error_prefix}Document processing failed or led to error path."
+        state.is_processed_successfully = False
+        logger.warning(f"{node_id_for_log}: Document processing marked as failed. Error info: {state.error_info}")
+        return state
+
+    workflow.add_node("doc_processor", _doc_processor_node)
+    workflow.add_node("final_summary_node", _final_summary_node)
+    workflow.add_node("error_handling_node", _error_handling_node_doc_workflow)
+
     workflow.set_entry_point("doc_processor")
+
+    # Define the router function explicitly for clarity and to potentially resolve type issues
+    def _doc_processor_router(state: DocumentProcessingState) -> str:
+        # Configuration for this specific routing instance
+        router_config = {"decision_threshold": 0.7}
+        return route_based_on_llm_output(state, config=router_config)
+
     workflow.add_conditional_edges(
         "doc_processor",
-        lambda s: route_based_on_llm_output(s, config={"decision_threshold": 0.7}),
+        _doc_processor_router,  # Use the explicitly defined router function
         {"high_confidence_path": "final_summary_node", "low_confidence_path": "error_handling_node", "error_handler_path": "error_handling_node"}
     )
     workflow.add_edge("error_handling_node", END)
@@ -155,9 +185,26 @@ def create_example_document_workflow() -> CompiledGraph:
 
 def create_basic_agent_workflow() -> CompiledGraph:
     graph = StateGraph(BasicAgentState)
-    graph.add_node("entry_node", lambda s: entry_point_node(s, config={})) # type: ignore
-    graph.add_node("agent_node", lambda s: simple_message_modifier_node(s, config={"message_prefix": "AgentMod: "})) # type: ignore
-    graph.add_node("tool_node", lambda s: simulated_tool_node(s, config={"tool_name": "static_tool"})) # type: ignore
+
+    async def _entry_node(state: BasicAgentState, invoke_config: Optional[Dict[str, Any]]=None):
+        node_specific_config = {"node_id_for_log": "entry_node"} # Original lambda config was {}
+        final_config = {**node_specific_config, **(invoke_config or {})}
+        return await entry_point_node(state, config=final_config)
+
+    async def _agent_node(state: BasicAgentState, invoke_config: Optional[Dict[str, Any]]=None):
+        node_specific_config = {"message_prefix": "AgentMod: ", "node_id_for_log": "agent_node"}
+        final_config = {**node_specific_config, **(invoke_config or {})}
+        return await simple_message_modifier_node(state, config=final_config)
+
+    async def _tool_node(state: BasicAgentState, invoke_config: Optional[Dict[str, Any]]=None):
+        node_specific_config = {"tool_name": "static_tool", "node_id_for_log": "tool_node"}
+        final_config = {**node_specific_config, **(invoke_config or {})}
+        return await simulated_tool_node(state, config=final_config)
+
+    graph.add_node("entry_node", _entry_node)
+    graph.add_node("agent_node", _agent_node)
+    graph.add_node("tool_node", _tool_node)
+
     graph.set_entry_point("entry_node")
     graph.add_conditional_edges("entry_node", agent_router, {"agent_node": "agent_node", "tool_node": "tool_node", END: END})
     graph.add_conditional_edges("agent_node", agent_router, {"tool_node": "tool_node", END: END})
