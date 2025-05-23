@@ -15,7 +15,8 @@ from rag.api.models import StatusResponse
 
 # --- Import LangGraph Visualization Routers ---
 from rag.langgraph_vis import api_routes as langgraph_api_router
-from rag.langgraph_vis import ws_handler as langgraph_ws_router
+# from rag.langgraph_vis import ws_handler as langgraph_ws_router # Commented out WebSocket router
+from rag.langgraph_vis import sse_handler as langgraph_sse_router # NEW: Import SSE router
 
 logger = logging.getLogger("app") # Assuming "app" is your root logger for this file
 
@@ -162,7 +163,8 @@ def create_app() -> FastAPI:
     # You might want a common prefix for all LangGraph visualization endpoints
     LG_VIS_PREFIX = "/v1/lg-vis"
     app_instance.include_router(langgraph_api_router.router, prefix=LG_VIS_PREFIX, tags=["LangGraph Management"])
-    app_instance.include_router(langgraph_ws_router.router, prefix=LG_VIS_PREFIX, tags=["LangGraph Execution (WS)"]) # WebSocket router
+    # app_instance.include_router(langgraph_ws_router.router, prefix=LG_VIS_PREFIX, tags=["LangGraph Execution (WS)"]) # WebSocket router
+    app_instance.include_router(langgraph_sse_router.router, prefix=LG_VIS_PREFIX, tags=["LangGraph Execution (SSE)"]) # NEW: Include SSE router
     # Note: The WebSocket paths in ws_handler.py already include "/ws/langgraph/graphs/..."
     # If you add a prefix here like "/v1/lg-vis", the full WebSocket path would become, e.g.,
     # "/v1/lg-vis/ws/langgraph/graphs/{graph_id}/execute". Ensure client-side reflects this.
