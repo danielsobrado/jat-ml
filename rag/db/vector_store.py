@@ -117,17 +117,28 @@ class VectorStore:
             
             return client
 
-    def _check_server_availability(self):
-        """Check if ChromaDB server is available."""
-        # Simplified check for brevity
-        try:
-            response = requests.get(f"http://{self.host}:{self.port}/api/v1/heartbeat", timeout=2)
-            response.raise_for_status() # Raises error for bad status (4xx or 5xx)
-            logger.debug("ChromaDB server heartbeat check successful.")
-            return True
-        except Exception as e:
-            logger.warning(f"ChromaDB server heartbeat check failed: {e}")
-            raise ConnectionError(f"Cannot connect to ChromaDB at http://{self.host}:{self.port}") from e
+    def _check_server_availability(self, retries: int = 5, delay: int = 3, timeout: int = 5):
+        """Check if ChromaDB server is available, with retries."""
+        for attempt in range(retries):
+            try:
+                logger.info(f"Attempting to connect to ChromaDB server (attempt {attempt + 1}/{retries} at http://{self.host}:{self.port})...")
+                response = requests.get(f"http://{self.host}:{self.port}/api/v1/heartbeat", timeout=timeout)
+                response.raise_for_status()  # Raises error for bad status (4xx or 5xx)
+                logger.info("ChromaDB server heartbeat check successful.")
+                return True
+            except requests.exceptions.RequestException as e: # Catch specific requests exceptions
+                logger.warning(f"ChromaDB server heartbeat check attempt {attempt + 1}/{retries} failed: {e}")
+                if attempt < retries - 1:
+                    logger.info(f"Waiting {delay} seconds before next attempt...")
+                    time.sleep(delay) # Ensure time module is imported (it is in the original file)
+                else:
+                    logger.error(f"All {retries} attempts to connect to ChromaDB server failed.")
+                    # Raise ConnectionError to be caught by _initialize_client for fallback
+                    raise ConnectionError(f"Cannot connect to ChromaDB at http://{self.host}:{self.port} after {retries} attempts") from e
+        # This line should ideally not be reached if retries > 0, as ConnectionError would be raised.
+        # However, to satisfy linters or strict type checking that expect a boolean return path:
+        return False
+
 
     def test_connection(self) -> bool:
         """Test the connection to ChromaDB."""

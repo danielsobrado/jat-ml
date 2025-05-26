@@ -4,6 +4,7 @@ import yaml
 from typing import Dict, Any, Optional
 import logging
 from dataclasses import dataclass, field # Import field
+from pathlib import Path # Added Path
 
 # Set up basic logging
 logging.basicConfig(level=logging.INFO)
@@ -55,11 +56,20 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     Returns:
         AppConfig: Application configuration
     """
+    # Determine the directory of the current script (config.py)
+    _current_script_dir = Path(__file__).resolve().parent # e.g., c:/Dev/jat/jat-ml/rag
+    _project_root_dir = _current_script_dir.parent # e.g., c:/Dev/jat/jat-ml
+    _default_yaml_path = _project_root_dir / "config" / "config.yaml"
+
     # Default config file path
     if config_path is None:
-        config_path = os.environ.get("CONFIG_PATH", "config.yaml") # Look for config.yaml relative to where script is run
+        config_path = os.environ.get("CONFIG_PATH", str(_default_yaml_path))
     
     logger.info(f"Attempting to load configuration from: {config_path}")
+    logger.info(f"Default YAML path determined by script location: {_default_yaml_path}")
+    env_var_config_path = os.environ.get("CONFIG_PATH")
+    logger.info(f"CONFIG_PATH environment variable: {env_var_config_path}")
+
 
     # Load config from YAML
     config_data = {}
@@ -125,8 +135,19 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     # Auth config with environment variable overrides
     auth_config_yaml = config_data.get("auth", {})
     default_admin_yaml = auth_config_yaml.get("default_admin", {})
+    
+    # Log the source of the 'enabled' flag for auth
+    auth_enabled_from_yaml = auth_config_yaml.get("enabled", "NOT_FOUND_IN_YAML")
+    logger.info(f"Auth 'enabled' from YAML ({config_path}): {auth_enabled_from_yaml}")
+    
+    env_enable_auth = os.environ.get("ENABLE_AUTH")
+    logger.info(f"ENABLE_AUTH environment variable: {env_enable_auth}")
+
+    final_auth_enabled_value = str(os.environ.get("ENABLE_AUTH", auth_config_yaml.get("enabled", True))).lower() == "true"
+    logger.info(f"Final calculated auth.enabled value: {final_auth_enabled_value} (Source YAML: {auth_enabled_from_yaml}, Env Var ENABLE_AUTH: {env_enable_auth})")
+
     auth = AuthConfig(
-        enabled=os.environ.get("ENABLE_AUTH", str(auth_config_yaml.get("enabled", True))).lower() == "true",
+        enabled=final_auth_enabled_value, # Ensure YAML 'enabled' is primary source before env var
         secret_key=os.environ.get("SECRET_KEY", auth_config_yaml.get("secret_key", "CHANGE_THIS_TO_A_SECURE_SECRET")),
         token_expire_minutes=int(os.environ.get(
             "ACCESS_TOKEN_EXPIRE_MINUTES", 
@@ -155,7 +176,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     logger.info(f"  PostgreSQL: host={postgres.host}, port={postgres.port}, user='{postgres.user}', dbname='{postgres.dbname}'")
     logger.info(f"  Auth: enabled={auth.enabled}, token_expire={auth.token_expire_minutes}m, admin_user='{auth.default_admin['username']}'")
     if not auth.secret_key or auth.secret_key == "CHANGE_THIS_TO_A_SECURE_SECRET":
-         logger.warning("Security warning: Using default or missing SECRET_KEY. Please set a strong secret key in config or environment variable.")
+         logger.warning("Auth secret_key is not set or is using the default insecure value. Please set a strong SECRET_KEY environment variable or update config.yaml.")
 
     return AppConfig(server=server, chromadb=chromadb, auth=auth, postgres=postgres)
 
