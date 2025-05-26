@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Body, Depends, Path as FastAPIPath, Query
+from fastapi import APIRouter, HTTPException, Body, Depends, Path as FastAPIPath, Query, WebSocket
 from fastapi.responses import JSONResponse
 
 from .schemas import (
@@ -274,4 +274,46 @@ async def execute_graph_http(
         execution_id=execution_id,
         message=f"Graph execution '{execution_id}' initiated for graph '{graph_id}'. Connect to WebSocket for updates.",
         websocket_url=str(ws_path) # Return the path
+    )
+
+@router.websocket("/ws/langgraph/graphs/{graph_id}/execute")
+async def websocket_execute_graph_with_id(
+    websocket: WebSocket, # Added WebSocket
+    graph_id: str = FastAPIPath(..., description="ID of the graph to execute (saved or static)."),
+    execution_id: str = Query(..., description="A unique ID for this execution instance, provided by the client or a preliminary setup call.")
+):
+    # Placeholder for WebSocket connection and execution logic
+    await websocket.accept()
+    logger.info(f"WebSocket connection established for graph_id: {graph_id}, execution_id: {execution_id}")
+    # Actual graph execution and message streaming would go here
+    # For now, just sending a confirmation and closing
+    await websocket.send_json({"message": f"WebSocket connected for graph {graph_id}, execution {execution_id}"})
+    await websocket.close()
+
+@router.post("/graphs/{graph_id}/execute/sse")
+async def execute_graph_sse(
+    graph_id: str = FastAPIPath(..., description="ID of the graph to execute (saved or static)."),
+    fastapi_req: ExecuteGraphRequest = Body(...), # Renamed to avoid conflict
+):
+    logger.info(f"SSE request to execute graph ID: {graph_id} with inputs: {fastapi_req.input_args}")
+    # Placeholder for SSE graph execution logic
+    # Actual graph execution and event streaming would go here
+    # This would typically return an EventSourceResponse
+    return JSONResponse(
+        content={"message": f"SSE execution initiated for graph {graph_id}. Events will be streamed."},
+        status_code=200
+    )
+
+@router.post("/graphs/{graph_id}/execute/stream")
+async def execute_graph_http_stream(
+    graph_id: str = FastAPIPath(..., description="ID of the graph to execute (saved or static)."),
+    fastapi_req: ExecuteGraphRequest = Body(...), # Renamed to avoid conflict
+):
+    logger.info(f"HTTP Streaming request to execute graph ID: {graph_id} with inputs: {fastapi_req.input_args}")
+    # Placeholder for HTTP Streaming graph execution logic
+    # Actual graph execution and chunked response streaming would go here
+    # This would typically return a StreamingResponse
+    return JSONResponse(
+        content={"message": f"HTTP Streaming execution initiated for graph {graph_id}. Data will be streamed."},
+        status_code=200
     )

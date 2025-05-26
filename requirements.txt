@@ -19,3 +19,4 @@ langchain==0.3.25
 langgraph==0.4.5
 langchain_openai==0.3.17
 langchain_core==0.3.60
+sse-starlette
